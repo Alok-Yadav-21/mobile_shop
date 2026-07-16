@@ -1,0 +1,102 @@
+import { describe, it, expect } from 'vitest'
+import {
+  can, canManageUsers, canApprove, canRefund, canManageInventory, canManageSettings,
+  isOwnRecord, isOwnRepair, isStaffBranch, customerCanCancelRepair,
+  isSuperAdmin, canCreateAdmin, canAssignRole, isSelf,
+} from './permissions.js'
+
+describe('can / role capability checks', () => {
+  it('only admin can manage users', () => {
+    expect(can('admin', 'manageUsers')).toBe(true)
+    expect(can('staff', 'manageUsers')).toBe(false)
+    expect(can('customer', 'manageUsers')).toBe(false)
+    expect(canManageUsers('admin')).toBe(true)
+    expect(canManageUsers('staff')).toBe(false)
+  })
+
+  it('only admin can approve a quote on the customer\'s behalf or refund an order', () => {
+    expect(canApprove('admin')).toBe(true)
+    expect(canApprove('staff')).toBe(false)
+    expect(canRefund('admin')).toBe(true)
+    expect(canRefund('customer')).toBe(false)
+  })
+
+  it('staff and admin can manage inventory, customers cannot', () => {
+    expect(canManageInventory('staff')).toBe(true)
+    expect(canManageInventory('admin')).toBe(true)
+    expect(canManageInventory('customer')).toBe(false)
+  })
+
+  it('unknown actions and unknown roles are denied by default', () => {
+    expect(can('admin', 'notARealAction')).toBe(false)
+    expect(can(undefined, 'manageUsers')).toBe(false)
+    expect(canManageSettings('staff')).toBe(false)
+  })
+})
+
+describe('ownership checks', () => {
+  it('isOwnRecord matches on the given key', () => {
+    const user = { id: 'u1' }
+    expect(isOwnRecord(user, { customerId: 'u1' })).toBe(true)
+    expect(isOwnRecord(user, { customerId: 'u2' })).toBe(false)
+    expect(isOwnRecord(user, null)).toBe(false)
+    expect(isOwnRecord(null, { customerId: 'u1' })).toBe(false)
+  })
+
+  it('isOwnRepair matches by email or phone', () => {
+    const user = { email: 'alex@demo.com', phone: '07700 900123' }
+    expect(isOwnRepair(user, { email: 'alex@demo.com' })).toBe(true)
+    expect(isOwnRepair(user, { phone: '07700 900123' })).toBe(true)
+    expect(isOwnRepair(user, { email: 'someone@else.com', phone: '000' })).toBe(false)
+  })
+
+  it('isStaffBranch: admin always passes, staff only for their own branch', () => {
+    expect(isStaffBranch({ role: 'admin' }, 'wol')).toBe(true)
+    expect(isStaffBranch({ role: 'staff', branch: 'wol' }, 'wol')).toBe(true)
+    expect(isStaffBranch({ role: 'staff', branch: 'blv' }, 'wol')).toBe(false)
+    expect(isStaffBranch({ role: 'customer' }, 'wol')).toBe(false)
+  })
+})
+
+describe('super admin gating', () => {
+  const superAdmin = { role: 'admin', superAdmin: true, id: 'u1' }
+  const regularAdmin = { role: 'admin', id: 'u2' }
+  const staff = { role: 'staff', id: 'u3' }
+
+  it('isSuperAdmin requires both the admin role and the flag', () => {
+    expect(isSuperAdmin(superAdmin)).toBe(true)
+    expect(isSuperAdmin(regularAdmin)).toBe(false)
+    expect(isSuperAdmin({ role: 'staff', superAdmin: true })).toBe(false)
+    expect(isSuperAdmin(undefined)).toBe(false)
+  })
+
+  it('only a super admin can create an admin account', () => {
+    expect(canCreateAdmin(superAdmin)).toBe(true)
+    expect(canCreateAdmin(regularAdmin)).toBe(false)
+    expect(canCreateAdmin(staff)).toBe(false)
+  })
+
+  it('canAssignRole requires super admin only when the target role is admin', () => {
+    expect(canAssignRole(regularAdmin, 'staff')).toBe(true)
+    expect(canAssignRole(regularAdmin, 'customer')).toBe(true)
+    expect(canAssignRole(regularAdmin, 'admin')).toBe(false)
+    expect(canAssignRole(superAdmin, 'admin')).toBe(true)
+    expect(canAssignRole(staff, 'staff')).toBe(false)
+  })
+
+  it('isSelf compares by id', () => {
+    expect(isSelf(superAdmin, { id: 'u1' })).toBe(true)
+    expect(isSelf(superAdmin, { id: 'u2' })).toBe(false)
+    expect(isSelf(null, { id: 'u1' })).toBe(false)
+  })
+})
+
+describe('customerCanCancelRepair', () => {
+  it('allows cancellation only before the device is received', () => {
+    expect(customerCanCancelRepair({ status: 'Booking received' })).toBe(true)
+    expect(customerCanCancelRepair({ status: 'Awaiting device' })).toBe(true)
+    expect(customerCanCancelRepair({ status: 'Device received' })).toBe(false)
+    expect(customerCanCancelRepair({ status: 'Repair in progress' })).toBe(false)
+    expect(customerCanCancelRepair({ status: 'Completed' })).toBe(false)
+  })
+})

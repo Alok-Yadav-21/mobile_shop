@@ -1,0 +1,518 @@
+// Local mock adapter — runs entirely on the verified seed data + localStorage, no network.
+// Every method here has a same-shaped counterpart in ./supabase.js; src/services/adapter/index.js
+// picks between them so page code never has to know which one is active.
+import { REPAIRS, TECHS } from '@/data/repairs.js'
+import { PRODUCTS, CATEGORIES } from '@/data/products.js'
+import { BRANCHES } from '@/data/branches.js'
+import { SERVICES } from '@/data/services.js'
+import { USERS } from '@/data/users.js'
+import { canTransition, requiresReason } from '@/constants/status.js'
+import { isSuperAdmin } from '@/lib/permissions.js'
+
+const delay = (ms = 250) => new Promise((r) => setTimeout(r, ms))
+
+function loadJSON(key, fallback) {
+  try { const s = localStorage.getItem(key); if (s) return JSON.parse(s) } catch { /* ignore */ }
+  return fallback
+}
+function saveJSON(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* storage unavailable — non-fatal in mock mode */ }
+}
+
+const KEYS = {
+  repairs: 'vt_repairs', orders: 'vt_orders', cart: 'vt_cart', tradeIns: 'vt_trade_ins',
+  users: 'vt_users', products: 'vt_products', categories: 'vt_categories', branches: 'vt_branches',
+  notifications: 'vt_notifications', auditLog: 'vt_audit_log', repairParts: 'vt_repair_parts',
+  inventoryMoves: 'vt_inventory_moves', customerNotes: 'vt_customer_notes', settings: 'vt_settings',
+  addresses: 'vt_addresses', warranties: 'vt_warranties', services: 'vt_services', branchStock: 'vt_branch_stock',
+}
+
+// --- seed helpers: merge operational fields (stock, status, active flags) onto the verified
+// reference data the first time each store is read, without mutating the source data files. ---
+function seedProducts() {
+  return PRODUCTS.map((p, i) => ({ stock: 8 + (i % 5) * 3, active: true, archived: false, lowStockThreshold: 3, ...p }))
+}
+function seedUsers() {
+  // lastActiveAt is synthetic session/operational metadata (not business data) — staggered
+  // so the demo table shows a realistic mix rather than one identical timestamp.
+  return USERS.map((u, i) => ({ status: 'active', archived: false, lastActiveAt: Date.now() - (i + 1) * 6 * 3600000, ...u }))
+}
+function seedBranches() {
+  return BRANCHES.map((b) => ({ active: true, archived: false, ...b }))
+}
+function seedCategories() {
+  return CATEGORIES.map((name) => ({ name, active: true, archived: false }))
+}
+function seedServices() {
+  return SERVICES.map((s, i) => ({ id: 'svc'+i, active: true, archived: false, ...s }))
+}
+
+export const RepairAPI = {
+  async list() { await delay(); return loadJSON(KEYS.repairs, REPAIRS) },
+  async forCustomer(phone) { await delay(); return loadJSON(KEYS.repairs, REPAIRS).filter((r) => r.phone === phone) },
+  async forBranch(branch) { await delay(); return loadJSON(KEYS.repairs, REPAIRS).filter((r) => r.branch === branch) },
+  async get(ref) { await delay(); return loadJSON(KEYS.repairs, REPAIRS).find((r) => r.ref === ref) },
+  async create(data) {
+    await delay()
+    const list = loadJSON(KEYS.repairs, REPAIRS)
+    const ref = 'SPR-' + (4800 + list.length + 1)
+    const rep = { ref, status: 'Booking received', quote: null, tech: null, createdAt: Date.now(), history: [['Booking received', Date.now()]], notes: [], ...data }
+    list.unshift(rep); saveJSON(KEYS.repairs, list); return rep
+  },
+  // status must be a valid transition from the repair's current status (see constants/status.js);
+  // transitions to Cancelled require a reason. Throws rather than silently applying an invalid change.
+  async update(ref, patch) {
+    await delay()
+    const list = loadJSON(KEYS.repairs, REPAIRS)
+    const r = list.find((x) => x.ref === ref)
+    if (!r) return null
+    if (patch.status && patch.status !== r.status) {
+      if (!canTransition(r.status, patch.status)) throw new Error(`Cannot move a repair from "${r.status}" to "${patch.status}".`)
+      if (requiresReason(patch.status) && !patch.cancellationReason) throw new Error('A reason is required to cancel a repair.')
+      r.history.push([patch.status, Date.now()])
+    }
+    Object.assign(r, patch); saveJSON(KEYS.repairs, list); return r
+  },
+  async addNote(ref, note) {
+    await delay()
+    const list = loadJSON(KEYS.repairs, REPAIRS)
+    const r = list.find((x) => x.ref === ref)
+    if (!r) return null
+    r.notes.push({ ...note, at: Date.now() }); saveJSON(KEYS.repairs, list); return r
+  },
+  async archive(ref) {
+    await delay()
+    const list = loadJSON(KEYS.repairs, REPAIRS)
+    const r = list.find((x) => x.ref === ref)
+    if (!r) return null
+    r.archived = true; saveJSON(KEYS.repairs, list); return r
+  },
+  async deleteDraft(ref) {
+    await delay()
+    const list = loadJSON(KEYS.repairs, REPAIRS)
+    const r = list.find((x) => x.ref === ref)
+    if (!r) return false
+    if (r.status !== 'Booking received') throw new Error('Only draft (Booking received) repairs can be deleted.')
+    saveJSON(KEYS.repairs, list.filter((x) => x.ref !== ref)); return true
+  },
+  // --- parts used on a repair ---
+  async listParts(ref) { await delay(80); return loadJSON(KEYS.repairParts, {})[ref] || [] },
+  async addPart(ref, part) {
+    await delay()
+    const store = loadJSON(KEYS.repairParts, {})
+    store[ref] = [...(store[ref] || []), { id: 'rp' + Date.now(), addedAt: Date.now(), ...part }]
+    saveJSON(KEYS.repairParts, store)
+    return store[ref]
+  },
+}
+
+export const ProductAPI = {
+  async list(filters = {}) {
+    await delay()
+    let out = loadJSON(KEYS.products, seedProducts())
+    if (!filters.includeArchived) out = out.filter((p) => !p.archived)
+    if (!filters.includeInactive) out = out.filter((p) => p.active !== false && !p.archived)
+    if (filters.category) out = out.filter((p) => p.category === filters.category)
+    if (filters.condition) out = out.filter((p) => p.cond === filters.condition)
+    if (filters.maxPrice) out = out.filter((p) => p.price <= filters.maxPrice)
+    if (filters.q) { const q = filters.q.toLowerCase(); out = out.filter((p) => p.name.toLowerCase().includes(q)) }
+    return out
+  },
+  async get(id) { await delay(); return loadJSON(KEYS.products, seedProducts()).find((p) => p.id === id) },
+  async categories() { await delay(); return loadJSON(KEYS.categories, seedCategories()).filter((c) => c.active && !c.archived).map((c) => c.name) },
+  // New products start inactive/draft until an admin explicitly activates them.
+  async create(data) {
+    await delay()
+    const list = loadJSON(KEYS.products, seedProducts())
+    const p = { id: 'p' + Date.now(), active: false, archived: false, stock: 0, lowStockThreshold: 3, ...data }
+    list.unshift(p); saveJSON(KEYS.products, list); return p
+  },
+  async update(id, patch) {
+    await delay()
+    const list = loadJSON(KEYS.products, seedProducts())
+    const p = list.find((x) => x.id === id)
+    if (!p) return null
+    Object.assign(p, patch); saveJSON(KEYS.products, list); return p
+  },
+  async duplicate(id) {
+    await delay()
+    const list = loadJSON(KEYS.products, seedProducts())
+    const src = list.find((x) => x.id === id)
+    if (!src) return null
+    const copy = { ...src, id: 'p' + Date.now(), name: `${src.name} (copy)`, active: false, archived: false, stock: 0 }
+    list.unshift(copy); saveJSON(KEYS.products, list); return copy
+  },
+  async setActive(id, active) { return ProductAPI.update(id, { active }) },
+  async archive(id) { return ProductAPI.update(id, { archived: true, active: false }) },
+  async restore(id) { return ProductAPI.update(id, { archived: false }) },
+  // Permanent delete only when unused: draft (never activated), zero stock, never ordered,
+  // no stock-movement history. Throws with the exact blockers rather than silently refusing.
+  async remove(id, blockers = []) {
+    await delay()
+    if (blockers.length) throw new Error(`Can't permanently delete — ${blockers.join(', ')}.`)
+    const list = loadJSON(KEYS.products, seedProducts())
+    saveJSON(KEYS.products, list.filter((p) => p.id !== id))
+    return true
+  },
+  async adjustStock(id, delta, reason, actorId) {
+    await delay()
+    const list = loadJSON(KEYS.products, seedProducts())
+    const p = list.find((x) => x.id === id)
+    if (!p) return null
+    const next = (p.stock || 0) + delta
+    if (next < 0) throw new Error(`Cannot reduce ${p.name}'s stock below 0.`)
+    p.stock = next
+    saveJSON(KEYS.products, list)
+    const moves = loadJSON(KEYS.inventoryMoves, [])
+    moves.unshift({ id: 'im' + Date.now(), productId: id, delta, reason, actorId: actorId ?? null, at: Date.now() })
+    saveJSON(KEYS.inventoryMoves, moves)
+    return p
+  },
+  async stockHistory(id) { await delay(80); return loadJSON(KEYS.inventoryMoves, []).filter((m) => m.productId === id) },
+  async lowStock() {
+    await delay()
+    return loadJSON(KEYS.products, seedProducts()).filter((p) => p.active !== false && !p.archived && p.stock <= (p.lowStockThreshold ?? 3))
+  },
+  // --- per-branch stock allocation (informational breakdown on top of the total in p.stock) ---
+  async branchStock(id) { await delay(80); return loadJSON(KEYS.branchStock, []).filter((r) => r.productId === id) },
+  async setBranchStock(id, branchId, quantity) {
+    await delay()
+    const list = loadJSON(KEYS.branchStock, [])
+    const row = list.find((r) => r.productId === id && r.branchId === branchId)
+    if (row) row.quantity = quantity
+    else list.push({ productId: id, branchId, quantity })
+    saveJSON(KEYS.branchStock, list)
+    return list.filter((r) => r.productId === id)
+  },
+  async transferStock(id, fromBranchId, toBranchId, quantity) {
+    await delay()
+    const list = loadJSON(KEYS.branchStock, [])
+    const from = list.find((r) => r.productId === id && r.branchId === fromBranchId)
+    if (!from || from.quantity < quantity) throw new Error('Not enough stock at the source branch to transfer.')
+    from.quantity -= quantity
+    const to = list.find((r) => r.productId === id && r.branchId === toBranchId)
+    if (to) to.quantity += quantity
+    else list.push({ productId: id, branchId: toBranchId, quantity })
+    saveJSON(KEYS.branchStock, list)
+    return list.filter((r) => r.productId === id)
+  },
+}
+
+export const CategoryAPI = {
+  async list(filters = {}) {
+    await delay()
+    let out = loadJSON(KEYS.categories, seedCategories())
+    if (!filters.includeArchived) out = out.filter((c) => !c.archived)
+    return out
+  },
+  async create(name) {
+    await delay()
+    const list = loadJSON(KEYS.categories, seedCategories())
+    if (list.some((c) => c.name.toLowerCase() === name.toLowerCase())) throw new Error('That category already exists.')
+    list.push({ name, active: true, archived: false }); saveJSON(KEYS.categories, list); return list
+  },
+  async update(name, patch) {
+    await delay()
+    const list = loadJSON(KEYS.categories, seedCategories())
+    const c = list.find((x) => x.name === name)
+    if (!c) return null
+    Object.assign(c, patch); saveJSON(KEYS.categories, list); return c
+  },
+  async setActive(name, active) { return CategoryAPI.update(name, { active }) },
+  async archive(name) { return CategoryAPI.update(name, { archived: true, active: false }) },
+  async restore(name) { return CategoryAPI.update(name, { archived: false }) },
+  async remove(name, blockers = []) {
+    await delay()
+    if (blockers.length) throw new Error(`Can't delete — ${blockers.join(', ')}.`)
+    const list = loadJSON(KEYS.categories, seedCategories())
+    saveJSON(KEYS.categories, list.filter((c) => c.name !== name))
+    return true
+  },
+}
+
+// Lucide icon components aren't JSON-serialisable, so persisted service records never store
+// `icon` — it's re-merged from the static SERVICES array (matched by id) on every read.
+function stripIcon({ icon, ...rest }) { return rest }
+function mergeIcon(svc) { return { ...svc, icon: SERVICES.find((s, i) => 'svc' + i === svc.id)?.icon } }
+
+export const ServiceAPI = {
+  async list(filters = {}) {
+    await delay()
+    let out = loadJSON(KEYS.services, seedServices().map(stripIcon)).map(mergeIcon)
+    if (!filters.includeArchived) out = out.filter((s) => !s.archived)
+    if (!filters.includeInactive) out = out.filter((s) => s.active !== false && !s.archived)
+    return out
+  },
+  async create(data) {
+    await delay()
+    const list = loadJSON(KEYS.services, seedServices().map(stripIcon))
+    const s = stripIcon({ id: 'svc' + Date.now(), active: false, archived: false, ...data })
+    list.unshift(s); saveJSON(KEYS.services, list); return mergeIcon(s)
+  },
+  async update(id, patch) {
+    await delay()
+    const list = loadJSON(KEYS.services, seedServices().map(stripIcon))
+    const s = list.find((x) => x.id === id)
+    if (!s) return null
+    Object.assign(s, stripIcon(patch)); saveJSON(KEYS.services, list); return mergeIcon(s)
+  },
+  async setActive(id, active) { return ServiceAPI.update(id, { active }) },
+  async archive(id) { return ServiceAPI.update(id, { archived: true, active: false }) },
+  async restore(id) { return ServiceAPI.update(id, { archived: false }) },
+  async remove(id, blockers = []) {
+    await delay()
+    if (blockers.length) throw new Error(`Can't delete — ${blockers.join(', ')}.`)
+    const list = loadJSON(KEYS.services, seedServices().map(stripIcon))
+    saveJSON(KEYS.services, list.filter((s) => s.id !== id))
+    return true
+  },
+}
+
+export const BranchAPI = {
+  async list(filters = {}) {
+    await delay()
+    let out = loadJSON(KEYS.branches, seedBranches())
+    if (!filters.includeArchived) out = out.filter((b) => !b.archived)
+    if (!filters.includeInactive) out = out.filter((b) => b.active !== false && !b.archived)
+    return out
+  },
+  async get(id) { await delay(); return loadJSON(KEYS.branches, seedBranches()).find((b) => b.id === id) },
+  async nearest(pc) {
+    await delay()
+    const out = (pc || '').toUpperCase().replace(/\s+/g, '').match(/^[A-Z]{1,2}\d/)?.[0] || ''
+    return loadJSON(KEYS.branches, seedBranches()).filter((b) => b.active !== false && !b.archived && b.pc.replace(/\s+/g, '').startsWith(out))
+  },
+  async update(id, patch) {
+    await delay()
+    const list = loadJSON(KEYS.branches, seedBranches())
+    const b = list.find((x) => x.id === id)
+    if (!b) return null
+    Object.assign(b, patch); saveJSON(KEYS.branches, list); return b
+  },
+  async setActive(id, active) { return BranchAPI.update(id, { active }) },
+  async archive(id) { return BranchAPI.update(id, { archived: true, active: false }) },
+  async restore(id) { return BranchAPI.update(id, { archived: false }) },
+  async remove(id, blockers = []) {
+    await delay()
+    if (blockers.length) throw new Error(`Can't delete — ${blockers.join(', ')}.`)
+    const list = loadJSON(KEYS.branches, seedBranches())
+    saveJSON(KEYS.branches, list.filter((b) => b.id !== id))
+    return true
+  },
+}
+
+export const CartAPI = {
+  async get() { await delay(50); return loadJSON(KEYS.cart, { items: [] }) },
+  async setQuantity(productId, quantity) {
+    await delay(50)
+    const products = loadJSON(KEYS.products, seedProducts())
+    const product = products.find((p) => p.id === productId)
+    const cart = loadJSON(KEYS.cart, { items: [] })
+    const existing = cart.items.find((i) => i.productId === productId)
+    const clamped = product ? Math.max(0, Math.min(quantity, product.stock ?? quantity)) : Math.max(0, quantity)
+    if (clamped <= 0) { cart.items = cart.items.filter((i) => i.productId !== productId) }
+    else if (existing) existing.quantity = clamped
+    else cart.items.push({ productId, quantity: clamped })
+    saveJSON(KEYS.cart, cart); return cart
+  },
+  async clear() { saveJSON(KEYS.cart, { items: [] }); return { items: [] } },
+}
+
+export const OrderAPI = {
+  async list(customerId) { await delay(); return loadJSON(KEYS.orders, []).filter((o) => !customerId || o.customerId === customerId) },
+  async get(ref) { await delay(); return loadJSON(KEYS.orders, []).find((o) => o.reference === ref) },
+  // creating an order reduces mock stock for each line item — checkout is the one place stock
+  // actually moves, so cancellation (below) has something real to restore.
+  async create(data) {
+    await delay()
+    const list = loadJSON(KEYS.orders, [])
+    const reference = 'VT-ORD-' + (10000 + list.length + 1)
+    const order = { reference, status: 'paid', paymentStatus: 'test_mode', createdAt: Date.now(), ...data }
+    list.unshift(order); saveJSON(KEYS.orders, list)
+    for (const item of order.items || []) {
+      try { await ProductAPI.adjustStock(item.productId, -item.quantity, `Order ${reference}`) } catch { /* out of sync stock is non-fatal for a mock order */ }
+    }
+    return order
+  },
+  async updateStatus(ref, status) {
+    await delay()
+    const list = loadJSON(KEYS.orders, [])
+    const o = list.find((x) => x.reference === ref)
+    if (!o) return null
+    o.status = status; saveJSON(KEYS.orders, list); return o
+  },
+  // eligible = not yet dispatched/completed; restores stock for each line item.
+  async cancel(ref, reason) {
+    await delay()
+    const list = loadJSON(KEYS.orders, [])
+    const o = list.find((x) => x.reference === ref)
+    if (!o) return null
+    if (['dispatched', 'completed', 'cancelled'].includes(o.status)) throw new Error(`Order ${ref} can no longer be cancelled (status: ${o.status}).`)
+    o.status = 'cancelled'; o.cancellationReason = reason
+    saveJSON(KEYS.orders, list)
+    for (const item of o.items || []) {
+      try { await ProductAPI.adjustStock(item.productId, item.quantity, `Cancelled order ${ref}`) } catch { /* ignore */ }
+    }
+    return o
+  },
+}
+
+export const TradeInAPI = {
+  async list(customerId) { await delay(); return loadJSON(KEYS.tradeIns, []).filter((t) => !customerId || t.customerId === customerId) },
+  async get(ref) { await delay(); return loadJSON(KEYS.tradeIns, []).find((t) => t.reference === ref) },
+  async create(data) {
+    await delay()
+    const list = loadJSON(KEYS.tradeIns, [])
+    const reference = 'VT-TI-' + (3000 + list.length + 1)
+    const req = { reference, status: 'submitted', createdAt: Date.now(), ...data }
+    list.unshift(req); saveJSON(KEYS.tradeIns, list); return req
+  },
+  async update(reference, patch) {
+    await delay()
+    const list = loadJSON(KEYS.tradeIns, [])
+    const t = list.find((x) => x.reference === reference)
+    if (!t) return null
+    if (patch.status === 'offer_declined' && !patch.rejectionReason && !t.rejectionReason) throw new Error('A rejection reason is required.')
+    Object.assign(t, patch); saveJSON(KEYS.tradeIns, list); return t
+  },
+  // only requests still in the early stages may be withdrawn by the customer
+  async cancel(reference) {
+    await delay()
+    const list = loadJSON(KEYS.tradeIns, [])
+    const t = list.find((x) => x.reference === reference)
+    if (!t) return null
+    if (!['submitted', 'valuation_review'].includes(t.status)) throw new Error(`Trade-in ${reference} can no longer be cancelled (status: ${t.status}).`)
+    t.status = 'cancelled'; saveJSON(KEYS.tradeIns, list); return t
+  },
+}
+
+export const UserAPI = {
+  async list() { await delay(); return loadJSON(KEYS.users, seedUsers()) },
+  async get(id) { await delay(); return loadJSON(KEYS.users, seedUsers()).find((u) => u.id === id) },
+  // actor is the signed-in admin performing the action — passed through so the adapter can
+  // enforce the same rules the UI already hides buttons for (defence in depth, not just UX).
+  async create(data, actor) {
+    await delay()
+    if (data.role === 'admin' && !isSuperAdmin(actor)) throw new Error('Only a super admin can create another admin account.')
+    const list = loadJSON(KEYS.users, seedUsers())
+    if (list.some((u) => u.email.toLowerCase() === data.email?.toLowerCase())) throw new Error('A user with that email already exists.')
+    const u = { id: 'u' + Date.now(), status: 'active', role: 'customer', lastActiveAt: null, ...data }
+    list.unshift(u); saveJSON(KEYS.users, list); return u
+  },
+  async update(id, patch) {
+    await delay()
+    const list = loadJSON(KEYS.users, seedUsers())
+    const u = list.find((x) => x.id === id)
+    if (!u) return null
+    Object.assign(u, patch); saveJSON(KEYS.users, list); return u
+  },
+  async setStatus(id, status, actor) {
+    if (status === 'inactive' && actor?.role === 'admin' && actor.id === id) throw new Error("You can't deactivate your own account.")
+    return UserAPI.update(id, { status })
+  },
+  async setRole(id, role, actor) {
+    if (role === 'admin' && !isSuperAdmin(actor)) throw new Error('Only a super admin can promote an account to admin.')
+    if (actor?.role !== 'admin') throw new Error('Only an admin can change account roles.')
+    return UserAPI.update(id, { role })
+  },
+  async assignBranch(id, branch) { return UserAPI.update(id, { branch }) },
+  async touchActivity(id) { return UserAPI.update(id, { lastActiveAt: Date.now() }) },
+  async archive(id, actor) {
+    if (actor?.role === 'admin' && actor.id === id) throw new Error("You can't archive your own account.")
+    return UserAPI.update(id, { archived: true, status: 'inactive' })
+  },
+  async restore(id) { return UserAPI.update(id, { archived: false }) },
+  // Sends a password-reset link in a real backend — mock mode has no email delivery, so this
+  // just records that a reset was triggered. Never exposes or generates a real password.
+  async resetPassword(id) {
+    await delay(300)
+    const user = loadJSON(KEYS.users, seedUsers()).find((u) => u.id === id)
+    if (!user) throw new Error('Account not found.')
+    return { sent: true, email: user.email }
+  },
+  // Customers/staff with repair/order/trade-in history (or, for staff, precomputed
+  // `opts.blockers` from deletionRules.js) are deactivated, never deleted; an admin can
+  // never remove their own account.
+  async remove(id, opts = {}, actor) {
+    await delay()
+    if (actor?.role === 'admin' && actor.id === id) throw new Error("You can't delete your own account.")
+    let hasHistory
+    if (opts.blockers) {
+      hasHistory = opts.blockers.length > 0
+    } else {
+      const { repairs = [], orders = [], tradeIns = [] } = opts
+      const user = loadJSON(KEYS.users, seedUsers()).find((u) => u.id === id)
+      hasHistory = repairs.some((r) => r.email === user?.email || r.phone === user?.phone)
+        || orders.some((o) => o.customerId === id) || tradeIns.some((t) => t.customerId === id)
+    }
+    if (hasHistory) { await UserAPI.setStatus(id, 'inactive'); return { deleted: false, deactivated: true } }
+    const list = loadJSON(KEYS.users, seedUsers())
+    saveJSON(KEYS.users, list.filter((u) => u.id !== id))
+    return { deleted: true, deactivated: false }
+  },
+  async listNotes(customerId) { await delay(80); return loadJSON(KEYS.customerNotes, []).filter((n) => n.customerId === customerId) },
+  async addNote(customerId, note) {
+    await delay()
+    const list = loadJSON(KEYS.customerNotes, [])
+    const entry = { id: 'cn' + Date.now(), customerId, at: Date.now(), ...note }
+    list.unshift(entry); saveJSON(KEYS.customerNotes, list); return entry
+  },
+}
+
+export const AddressAPI = {
+  async list(customerId) { await delay(80); return loadJSON(KEYS.addresses, []).filter((a) => a.customerId === customerId) },
+  async create(customerId, address) {
+    await delay()
+    const list = loadJSON(KEYS.addresses, [])
+    const entry = { id: 'ad' + Date.now(), customerId, ...address }
+    list.unshift(entry); saveJSON(KEYS.addresses, list); return entry
+  },
+}
+
+export const WarrantyAPI = {
+  async list(customerId) { await delay(80); return loadJSON(KEYS.warranties, []).filter((w) => w.customerId === customerId) },
+}
+
+export const NotificationAPI = {
+  async list(customerId) { await delay(80); return loadJSON(KEYS.notifications, []).filter((n) => !customerId || n.customerId === customerId) },
+  async create(data) {
+    await delay(80)
+    const list = loadJSON(KEYS.notifications, [])
+    const n = { id: 'n' + Date.now(), read: false, createdAt: Date.now(), ...data }
+    list.unshift(n); saveJSON(KEYS.notifications, list); return n
+  },
+  async markRead(id) {
+    await delay(50)
+    const list = loadJSON(KEYS.notifications, [])
+    const n = list.find((x) => x.id === id)
+    if (n) n.read = true
+    saveJSON(KEYS.notifications, list); return n
+  },
+}
+
+export const SettingsAPI = {
+  async get(key, fallback) { await delay(50); return loadJSON(KEYS.settings, {})[key] ?? fallback },
+  async set(key, value) {
+    await delay(50)
+    const all = loadJSON(KEYS.settings, {})
+    all[key] = value; saveJSON(KEYS.settings, all); return value
+  },
+}
+
+export const AuditAPI = {
+  async log(entry) {
+    const list = loadJSON(KEYS.auditLog, [])
+    list.unshift({ id: 'al' + Date.now(), at: Date.now(), ...entry })
+    saveJSON(KEYS.auditLog, list.slice(0, 500)) // cap growth in mock mode
+    return true
+  },
+  async list(filters = {}) {
+    await delay()
+    let out = loadJSON(KEYS.auditLog, [])
+    if (filters.entityType) out = out.filter((l) => l.entityType === filters.entityType)
+    if (filters.actorId) out = out.filter((l) => l.actorId === filters.actorId)
+    return out
+  },
+}
+
+export { TECHS }

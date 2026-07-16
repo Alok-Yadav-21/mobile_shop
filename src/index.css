@@ -1,0 +1,116 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root{ color-scheme: light; }
+html{ scroll-behavior:smooth; }
+body{ @apply bg-white text-ink antialiased; font-family: theme('fontFamily.sans'); }
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+/* reusable component classes */
+@layer components{
+  .container-x{ @apply max-w-[1200px] mx-auto px-5 sm:px-6; }
+  .btn{ @apply inline-flex items-center justify-center gap-2 rounded-xl font-semibold text-sm px-5 py-3 transition-all duration-150 select-none; }
+  .btn-brand{ @apply bg-brand text-white shadow-[0_12px_26px_-14px_rgba(47,107,237,.9)] hover:bg-brand-700 hover:-translate-y-0.5; }
+  .btn-ghost{ @apply bg-white border border-slate-200 text-ink hover:border-brand hover:text-brand hover:-translate-y-0.5; }
+  .btn-ink{ @apply bg-ink text-white hover:-translate-y-0.5; }
+  .btn-outline{ @apply bg-transparent border border-white/25 text-white hover:border-white/50 hover:-translate-y-0.5; }
+  .btn-sm{ @apply px-4 py-2 text-[13px] rounded-lg; }
+  .card{ @apply bg-white border border-slate-200 rounded-2xl; }
+  .eyebrow{ @apply text-[12px] font-bold tracking-[0.14em] uppercase text-brand; }
+  .grad-text{ @apply bg-gradient-to-r from-brand to-violet bg-clip-text text-transparent; }
+
+  /* --- Premium design-system primitives (M3) --- */
+  /* Asymmetric bento grid: children opt into span via .bento-lg / .bento-tall */
+  .bento{ @apply grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4; }
+  .bento-lg{ @apply col-span-2 row-span-2; }
+  .bento-tall{ @apply row-span-2; }
+  .bento-tile{ @apply relative bg-white border border-graphite-200 rounded-2xl p-5 sm:p-6 transition-all duration-200 hover:border-brand/40 hover:shadow-elevate; }
+
+  /* Hairline surfaces (replace heavy card/glow patterns) */
+  .surface{ @apply bg-white border border-graphite-200 rounded-2xl; }
+  .surface-dark{ @apply bg-ink-900 border border-white/10 rounded-2xl; }
+  .hairline{ @apply border border-graphite-200; }
+  .hairline-t{ @apply border-t border-graphite-200; }
+
+  /* Monospace data readouts: prices, refs, counters, timestamps */
+  .mono-data{ @apply font-mono tabular-nums; }
+
+  /* Section rhythm helpers */
+  .section-pad{ @apply py-16 sm:py-24; }
+  .kicker{ @apply text-[11px] font-bold tracking-[0.16em] uppercase text-graphite-400; }
+
+  /* Small pulsing "live" indicator used sparingly for diagnostic/status moments */
+  .live-dot{ @apply relative inline-flex w-2 h-2 rounded-full bg-signal; }
+  .live-dot::after{ content:''; @apply absolute inset-0 rounded-full bg-signal animate-ping-slow; }
+
+  /* Plain form input (used outside the shadcn Form wiring, e.g. quick RHF forms) */
+  .input-field{ @apply w-full h-10 rounded-lg border border-graphite-200 bg-white px-3 text-[13.5px] outline-none transition-colors focus:border-brand focus:ring-1 focus:ring-brand/30; }
+}
+
+@layer utilities{
+  .animate-ping-slow{ animation: ping-slow 2.2s cubic-bezier(0,0,.2,1) infinite; }
+  @keyframes ping-slow{ 0%{ transform:scale(1); opacity:.7; } 75%,100%{ transform:scale(2.2); opacity:0; } }
+  .no-scrollbar::-webkit-scrollbar{ display:none; }
+  .no-scrollbar{ -ms-overflow-style:none; scrollbar-width:none; }
+}
