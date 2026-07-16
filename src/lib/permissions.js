@@ -1,0 +1,96 @@
+// Central permission system. UI components should call these helpers instead of
+// scattering `role === 'admin'` checks — the same checks are re-applied at the
+// adapter layer (src/services/adapter/mock.js) and, for Supabase, enforced again by
+// Postgres RLS policies (supabase/migrations/0002_policies.sql, 0003_role_crud.sql).
+// Hiding a button is a UX nicety here, never the actual security boundary.
+import { ROLES } from '@/constants/roles.js'
+
+const { CUSTOMER, STAFF, ADMIN } = ROLES
+
+// action -> roles allowed to perform it, platform-wide (not accounting for ownership/branch scope)
+const CAPABILITIES = {
+  // repairs
+  viewAllRepairs: [ADMIN],
+  viewBranchRepairs: [STAFF, ADMIN],
+  createRepairForCustomer: [STAFF, ADMIN],
+  assignTechnician: [STAFF, ADMIN],
+  updateRepairStatus: [STAFF, ADMIN],
+  approveQuoteOnBehalf: [ADMIN],
+  cancelRepair: [CUSTOMER, STAFF, ADMIN],
+  deleteRepairDraft: [ADMIN],
+  archiveRepair: [ADMIN],
+
+  // users / staff
+  manageUsers: [ADMIN],
+  manageStaff: [ADMIN],
+  deleteUser: [ADMIN],
+  resetPassword: [ADMIN],
+
+  // customers
+  manageCustomers: [STAFF, ADMIN],
+  addCustomerNote: [STAFF, ADMIN],
+
+  // catalogue / inventory
+  manageProducts: [ADMIN],
+  manageCategories: [ADMIN],
+  manageInventory: [STAFF, ADMIN],
+  transferStock: [ADMIN],
+  deleteProduct: [ADMIN],
+
+  // orders / payments
+  manageOrders: [ADMIN],
+  refundOrder: [ADMIN],
+
+  // trade-ins
+  viewTradeIns: [STAFF, ADMIN],
+  inspectTradeIn: [STAFF, ADMIN],
+  approveTradeIn: [ADMIN],
+  recommendTradeInValuation: [STAFF, ADMIN],
+
+  // branches
+  manageBranches: [ADMIN],
+
+  // platform
+  manageSettings: [ADMIN],
+  viewAuditLog: [ADMIN],
+  viewFinancialReports: [ADMIN],
+}
+
+export function can(role, action){
+  const allowed = CAPABILITIES[action]
+  if(!allowed) return false
+  return allowed.includes(role)
+}
+
+// Named convenience wrappers for the most-used checks.
+export const canView = (role, action)=>can(role, action)
+export const canCreate = (role, action)=>can(role, action)
+export const canUpdate = (role, action)=>can(role, action)
+export const canDelete = (role, action)=>can(role, action)
+export const canAssign = (role)=>can(role, 'assignTechnician')
+export const canApprove = (role)=>can(role, 'approveQuoteOnBehalf')
+export const canRefund = (role)=>can(role, 'refundOrder')
+export const canManageUsers = (role)=>can(role, 'manageUsers')
+export const canManageInventory = (role)=>can(role, 'manageInventory')
+export const canManageSettings = (role)=>can(role, 'manageSettings')
+export const canResetPassword = (role)=>can(role, 'resetPassword')
+
+// Super admin: a distinct flag on top of the admin role (not a 4th ROLES value, so route
+// guards/ROLE_HOME etc. don't need to know about it). Only a super admin may create another
+// admin account or promote an existing account to admin — a regular admin can still manage
+// customer/staff accounts freely.
+export const isSuperAdmin = (user)=> user?.role===ADMIN && user?.superAdmin===true
+export const canCreateAdmin = (actor)=> isSuperAdmin(actor)
+export const canAssignRole = (actor, targetRole)=> targetRole===ADMIN ? isSuperAdmin(actor) : can(actor?.role, 'manageUsers')
+export const isSelf = (actor, target)=> !!actor && !!target && actor.id===target.id
+
+// Ownership / scope checks — these need the actual record, not just the role.
+export const isOwnRecord = (user, record, key='customerId')=> !!user && !!record && record[key]===user.id
+export const isOwnRepair = (user, repair)=> !!user && !!repair && (repair.email===user.email || repair.phone===user.phone)
+export const isStaffBranch = (user, branchId)=> user?.role===ADMIN || !!(user?.branch && user.branch===branchId)
+
+// A repair may only be self-cancelled by its customer before the device has been received.
+export const CANCELLABLE_BY_CUSTOMER_BEFORE = ['Booking received', 'Awaiting device']
+export function customerCanCancelRepair(repair){
+  return CANCELLABLE_BY_CUSTOMER_BEFORE.includes(repair?.status)
+}
