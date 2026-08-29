@@ -36,6 +36,26 @@ function mapRepairRow(row, history = [], notes = []) {
   }
 }
 
+function mapShiftRow(row) {
+  return {
+    id: row.id, staffId: row.staff_id, branchId: row.branch_id, date: row.worked_on,
+    at: new Date(row.worked_on).getTime(), start: row.starts_at, end: row.ends_at,
+    breakMins: row.break_minutes ?? 0, entryMode: row.entry_mode, hours: row.hours == null ? null : Number(row.hours),
+    status: row.status, submittedBy: row.submitted_by, reviewedBy: row.reviewed_by,
+    submittedAt: row.submitted_at ? new Date(row.submitted_at).getTime() : null,
+    reviewedAt: row.reviewed_at ? new Date(row.reviewed_at).getTime() : null,
+    reviewNote: row.review_note ?? null,
+  }
+}
+
+function mapPurchaseRow(row) {
+  return {
+    id: row.id, reference: row.reference, branchId: row.branch_id, productId: row.product_id,
+    productName: row.product_name ?? null, quantity: row.quantity, unitCost: Number(row.unit_cost),
+    supplier: row.supplier, at: new Date(row.purchased_at).getTime(),
+  }
+}
+
 function assertConnected() {
   if (!supabase) throw new Error('Supabase adapter used without VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY set — see .env.example.')
 }
@@ -366,6 +386,19 @@ export const BranchAPI = {
     const out = (pc || '').toUpperCase().replace(/\s+/g, '').match(/^[A-Z]{1,2}\d/)?.[0] || ''
     return all.filter((b) => b.pc.replace(/\s+/g, '').startsWith(out))
   },
+  // Mirrors the mock adapter: new branches open inactive so setup can finish before they
+  // appear in customer-facing branch pickers.
+  async create(data) {
+    assertConnected()
+    const id = (data.id || data.area || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 6)
+    const { data: row, error } = await supabase.from('branches').insert({
+      id, area: data.area, local_name: data.local, address: data.addr, postcode: data.pc,
+      phone: data.phone ?? null, lat: data.lat ?? null, lng: data.lng ?? null,
+      active: false, archived: false,
+    }).select().single()
+    if (error) throw error
+    return { id: row.id, area: row.area, local: row.local_name, addr: row.address, pc: row.postcode, active: row.active, archived: !!row.archived }
+  },
   async update(id, patch) {
     assertConnected()
     const dbPatch = {}
@@ -690,6 +723,108 @@ export const AuditAPI = {
     const { data, error } = await q
     if (error) throw error
     return data
+  },
+}
+
+// Rota records backing wage calculation. Hours and pay are derived in src/lib/wages.js from
+// these rows — same contract as the mock adapter, so the reports need no branch of their own.
+export const ShiftAPI = {
+  async list(filters = {}) {
+    assertConnected()
+    let q = supabase.from('shifts').select('*')
+    if (filters.staffId) q = q.eq('staff_id', filters.staffId)
+    if (filters.branchId) q = q.eq('branch_id', filters.branchId)
+    if (filters.status) q = q.eq('status', filters.status)
+    if (filters.from != null) q = q.gte('worked_on', new Date(filters.from).toISOString().slice(0, 10))
+    if (filters.to != null) q = q.lte('worked_on', new Date(filters.to).toISOString().slice(0, 10))
+    // No client-side ownership filter is needed: the RLS policies in
+    // supabase/migrations/0007_shifts_and_costs.sql already restrict a staff member's rows to
+    // their own, server-side, whatever this query asks for.
+    const { data, error } = await q
+    if (error) throw error
+    return data.map(mapShiftRow)
+  },
+  // staff_id, status and the review columns are set by database defaults and triggers, never
+  // by the client — a submission cannot arrive pre-approved or filed against a colleague.
+  async create(data) {
+    assertConnected()
+    const { data: row, error } = await supabase.from('shifts').insert({
+      branch_id: data.branchId, worked_on: data.date,
+      starts_at: data.start ?? null, ends_at: data.end ?? null,
+      break_minutes: data.breakMins ?? 0, entry_mode: data.entryMode, hours: data.hours ?? null,
+    }).select().single()
+    if (error) throw error
+    return mapShiftRow(row)
+  },
+  // Approval is a privileged RPC rather than a plain update, so the transition to 'approved'
+  // — the thing that makes hours payable — is decided by the database, not the caller.
+  async review(id, decision, note) {
+    assertConnected()
+    const { data, error } = await supabase.rpc('review_shift', { shift_id: id, decision, note: note ?? null })
+    if (error) throw error
+    return data ? mapShiftRow(data) : null
+  },
+  async resubmit(id, patch = {}) {
+    assertConnected()
+    const dbPatch = { status: 'pending', review_note: null, reviewed_by: null, reviewed_at: null, submitted_at: new Date().toISOString() }
+    if (patch.date !== undefined) dbPatch.worked_on = patch.date
+    if (patch.start !== undefined) dbPatch.starts_at = patch.start
+    if (patch.end !== undefined) dbPatch.ends_at = patch.end
+    if (patch.breakMins !== undefined) dbPatch.break_minutes = patch.breakMins
+    if (patch.entryMode !== undefined) dbPatch.entry_mode = patch.entryMode
+    if (patch.hours !== undefined) dbPatch.hours = patch.hours
+    const { data, error } = await supabase.from('shifts').update(dbPatch).eq('id', id).select().single()
+    if (error) throw error
+    return mapShiftRow(data)
+  },
+  async update(id, patch) {
+    assertConnected()
+    const dbPatch = {}
+    if (patch.date !== undefined) dbPatch.worked_on = patch.date
+    if (patch.start !== undefined) dbPatch.starts_at = patch.start
+    if (patch.end !== undefined) dbPatch.ends_at = patch.end
+    if (patch.breakMins !== undefined) dbPatch.break_minutes = patch.breakMins
+    if (patch.branchId !== undefined) dbPatch.branch_id = patch.branchId
+    if (patch.entryMode !== undefined) dbPatch.entry_mode = patch.entryMode
+    if (patch.hours !== undefined) dbPatch.hours = patch.hours
+    const { data, error } = await supabase.from('shifts').update(dbPatch).eq('id', id).select().single()
+    if (error) throw error
+    return mapShiftRow(data)
+  },
+  async remove(id) {
+    assertConnected()
+    const { error } = await supabase.from('shifts').delete().eq('id', id)
+    if (error) throw error
+    return true
+  },
+}
+
+export const PurchaseAPI = {
+  async list(filters = {}) {
+    assertConnected()
+    let q = supabase.from('stock_purchases').select('*')
+    if (filters.branchId) q = q.eq('branch_id', filters.branchId)
+    if (filters.productId) q = q.eq('product_id', filters.productId)
+    if (filters.from != null) q = q.gte('purchased_at', new Date(filters.from).toISOString())
+    if (filters.to != null) q = q.lte('purchased_at', new Date(filters.to).toISOString())
+    const { data, error } = await q.order('purchased_at', { ascending: false })
+    if (error) throw error
+    return data.map(mapPurchaseRow)
+  },
+  async create(data) {
+    assertConnected()
+    const { data: row, error } = await supabase.from('stock_purchases').insert({
+      branch_id: data.branchId, product_id: data.productId, quantity: data.quantity,
+      unit_cost: data.unitCost, supplier: data.supplier ?? null,
+    }).select().single()
+    if (error) throw error
+    return mapPurchaseRow(row)
+  },
+  async allBranchStock() {
+    assertConnected()
+    const { data, error } = await supabase.from('branch_stock').select('product_id, branch_id, quantity')
+    if (error) throw error
+    return data.map((r) => ({ productId: r.product_id, branchId: r.branch_id, quantity: r.quantity }))
   },
 }
 

@@ -47,6 +47,7 @@ const AssignedRepairs = lazy(()=>import('@/pages/staff/AssignedRepairs.jsx'))
 const RepairDetails = lazy(()=>import('@/pages/staff/RepairDetails.jsx'))
 const CustomerRequests = lazy(()=>import('@/pages/staff/CustomerRequests.jsx'))
 const StockTasks = lazy(()=>import('@/pages/staff/StockTasks.jsx'))
+const MyShifts = lazy(()=>import('@/pages/staff/MyShifts.jsx'))
 // admin
 const AdDashboard = lazy(()=>import('@/pages/admin/Dashboard.jsx'))
 const ManageUsers = lazy(()=>import('@/pages/admin/ManageUsers.jsx'))
@@ -61,6 +62,8 @@ const ManageOrders = lazy(()=>import('@/pages/admin/ManageOrders.jsx'))
 const BuySellRequests = lazy(()=>import('@/pages/admin/BuySellRequests.jsx'))
 const Payments = lazy(()=>import('@/pages/admin/Payments.jsx'))
 const Reports = lazy(()=>import('@/pages/admin/Reports.jsx'))
+const Wages = lazy(()=>import('@/pages/admin/Wages.jsx'))
+const ShiftApprovals = lazy(()=>import('@/pages/admin/ShiftApprovals.jsx'))
 const Settings = lazy(()=>import('@/pages/admin/Settings.jsx'))
 const AdminBranches = lazy(()=>import('@/pages/admin/Branches.jsx'))
 const AuditLog = lazy(()=>import('@/pages/admin/AuditLog.jsx'))
@@ -119,6 +122,7 @@ export default function AppRoutes(){
           <Route path="repairs/:ref" element={<RepairDetails/>}/>
           <Route path="requests" element={<CustomerRequests/>}/>
           <Route path="stock" element={<StockTasks/>}/>
+          <Route path="shifts" element={<MyShifts/>}/>
         </Route>
 
         {/* Admin */}
@@ -137,6 +141,8 @@ export default function AppRoutes(){
           <Route path="users" element={<ManageUsers/>}/>
           <Route path="branches" element={<AdminBranches/>}/>
           <Route path="reports" element={<Reports/>}/>
+          <Route path="wages" element={<Wages/>}/>
+          <Route path="timesheets" element={<ShiftApprovals/>}/>
           <Route path="audit" element={<AuditLog/>}/>
           <Route path="settings" element={<Settings/>}/>
         </Route>

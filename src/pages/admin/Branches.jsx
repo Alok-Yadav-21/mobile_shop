@@ -1,4 +1,7 @@
 import { useMemo, useState } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
 import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth.js'
 import { useAsync } from '@/hooks/useAsync.js'
@@ -12,9 +15,17 @@ import { StatusPill } from '@/components/common/AccountStatusBadge.jsx'
 import { RowActionsMenu } from '@/components/common/RowActionsMenu.jsx'
 import { EmptyState } from '@/components/common/EmptyState.jsx'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog.jsx'
-import { Search, MapPin, Users as UsersIcon, Eye, UserCheck, UserX, Archive, ArchiveRestore, Trash2 } from 'lucide-react'
+import { Search, MapPin, Users as UsersIcon, Eye, Pencil, Plus, UserCheck, UserX, Archive, ArchiveRestore, Trash2 } from 'lucide-react'
 
 const REASON_ACTIONS = new Set(['archive'])
+
+const schema = z.object({
+  area: z.string().min(2, 'Enter the branch area or name'),
+  local: z.string().min(2, 'Enter the local trading name'),
+  addr: z.string().min(5, 'Enter the street address'),
+  pc: z.string().min(4, 'Enter a valid postcode'),
+  phone: z.string().optional(),
+})
 
 export default function Branches(){
   const { user:me } = useAuth()
@@ -26,8 +37,29 @@ export default function Branches(){
 
   const [q,setQ]=useState(''); const [statusFilter,setStatusFilter]=useState('')
   const [viewing,setViewing]=useState(null)
+  const [editing,setEditing]=useState(null) // null = closed; {} = creating; branch = editing
   const [target,setTarget]=useState(null)
   const [deleteBlockers,setDeleteBlockers]=useState(null)
+
+  const { register, handleSubmit, reset, formState:{ errors, isSubmitting } } = useForm({ resolver: zodResolver(schema) })
+
+  const openCreate = ()=>{ reset({ area:'', local:'', addr:'', pc:'', phone:'' }); setEditing({}) }
+  const openEdit = (b)=>{ reset({ area:b.area, local:b.local, addr:b.addr, pc:b.pc, phone:b.phone||'' }); setEditing(b) }
+
+  const onSubmit = async (data)=>{
+    try{
+      if(editing?.id){
+        await BranchAPI.update(editing.id, data)
+        logAction({ user:me, action:'branch.update', entityType:'branch', entityId:editing.id, before:editing, after:data })
+        toast.success(`${data.area.split('—')[0].trim()} updated`)
+      } else {
+        const created = await BranchAPI.create(data)
+        logAction({ user:me, action:'branch.create', entityType:'branch', entityId:created.id, after:created })
+        toast.success(`${data.area.split('—')[0].trim()} created — activate it when it's ready to take bookings`)
+      }
+      setEditing(null); refetch()
+    } catch(e){ toast.error(e.message||'Could not save the branch') }
+  }
 
   const list = useMemo(()=>branches.filter(b=>{
     const status = b.archived ? 'archived' : (b.active!==false?'active':'inactive')
@@ -54,6 +86,7 @@ export default function Branches(){
     const status = b.archived ? 'archived' : (b.active!==false?'active':'inactive')
     return [
       { key:'view', label:'View branch', icon:Eye, onClick:()=>setViewing(b) },
+      { key:'edit', label:'Edit details', icon:Pencil, onClick:()=>openEdit(b), hidden:!canManage },
       status==='active'
         ? { key:'deactivate', label:'Deactivate', icon:UserX, tone:'amber', onClick:()=>setTarget({type:'deactivate',branch:b}), hidden:!canManage }
         : status!=='archived' && { key:'activate', label:'Activate', icon:UserCheck, tone:'emerald', onClick:()=>setTarget({type:'activate',branch:b}), hidden:!canManage },
@@ -66,8 +99,13 @@ export default function Branches(){
 
   return (
     <div>
-      <h1 className="text-2xl font-extrabold tracking-tight mb-1">Branches</h1>
-      <p className="text-graphite-400 text-[14px] mb-6">Verified branch directory — addresses and contact details are fixed reference data.</p>
+      <div className="flex items-start justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl font-extrabold tracking-tight mb-1">Branches</h1>
+          <p className="text-graphite-400 text-[14px]">Open, edit and retire the stores in the network. New branches start inactive until you activate them.</p>
+        </div>
+        {canManage && <button onClick={openCreate} className="btn btn-brand btn-sm shrink-0"><Plus size={15}/> New branch</button>}
+      </div>
 
       <div className="flex flex-wrap gap-3 mb-4 items-center">
         <div className="flex items-center gap-2 input-field w-auto max-w-xs"><Search size={14} className="text-graphite-400"/><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search branches…" className="bg-transparent outline-none flex-1"/></div>
@@ -99,6 +137,38 @@ export default function Branches(){
             )
           })}
         </div>
+      )}
+
+      {editing && (
+        <Dialog open={!!editing} onOpenChange={(o)=>!o&&setEditing(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>{editing.id ? `Edit ${editing.area.split('—')[0].trim()}` : 'Open a new branch'}</DialogTitle></DialogHeader>
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-3.5">
+              {[
+                { name:'area',  label:'Branch area / name', placeholder:'e.g. Bexleyheath' },
+                { name:'local', label:'Local trading name',  placeholder:'e.g. Smart Phones Repair' },
+                { name:'addr',  label:'Street address',      placeholder:'e.g. 12 Broadway' },
+                { name:'pc',    label:'Postcode',            placeholder:'e.g. DA6 7DA' },
+                { name:'phone', label:'Phone (optional)',    placeholder:'e.g. 020 8000 0000' },
+              ].map(f=>(
+                <div key={f.name}>
+                  <label htmlFor={`branch-${f.name}`} className="block text-[12px] font-semibold text-graphite-500 mb-1.5">{f.label}</label>
+                  <input id={`branch-${f.name}`} {...register(f.name)} placeholder={f.placeholder} className="input-field"/>
+                  {errors[f.name] && <p className="text-[11.5px] text-rose-600 mt-1">{errors[f.name].message}</p>}
+                </div>
+              ))}
+              {!editing.id && (
+                <p className="text-[11.5px] text-graphite-400">
+                  The branch code is derived from the area name and must be unique. The branch opens inactive so you can assign staff and stock before it appears in customer branch pickers.
+                </p>
+              )}
+              <DialogFooter>
+                <button type="button" onClick={()=>setEditing(null)} className="btn btn-ghost btn-sm">Cancel</button>
+                <button type="submit" disabled={isSubmitting} className="btn btn-brand btn-sm">{editing.id ? 'Save changes' : 'Create branch'}</button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
       )}
 
       {viewing && (

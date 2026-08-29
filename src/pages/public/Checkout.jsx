@@ -42,6 +42,12 @@ export default function Checkout(){
       deliveryAddress: `${data.address}, ${data.postcode}`,
       items: lines.map(l=>({ productId:l.productId, name:l.product.name, price:l.product.price, quantity:l.quantity })),
       total: subtotal,
+      // Ledger fields the admin reports aggregate on. A web checkout is a card payment with no
+      // originating branch — reports surface these under "Web / unassigned" so the branch rows
+      // and the overall total still reconcile.
+      kind: 'retail',
+      paymentMethod: 'online',
+      branch: null,
     })
     await clear()
     setSubmitting(false)
