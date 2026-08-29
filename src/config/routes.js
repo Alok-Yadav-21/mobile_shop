@@ -43,6 +43,7 @@ export const PATHS = {
   staff: {
     root: '/staff',
     repairs: '/staff/repairs',
+    shifts: '/staff/shifts',
     repair: (ref = ':ref') => `/staff/repairs/${ref}`,
     requests: '/staff/requests',
     stock: '/staff/stock',
@@ -66,6 +67,8 @@ export const PATHS = {
     warranties: '/admin/warranties',
     users: '/admin/users',
     reports: '/admin/reports',
+    wages: '/admin/wages',
+    shiftApprovals: '/admin/timesheets',
     settings: '/admin/settings',
   },
 

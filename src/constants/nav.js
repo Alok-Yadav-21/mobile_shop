@@ -1,6 +1,6 @@
 import { LayoutDashboard, Wrench, ClipboardList, PackageSearch, ShoppingBag, Users,
   UserCog, Tags, CreditCard, BarChart3, Settings, Boxes, ArrowLeftRight, ListChecks,
-  Calendar, User, Package, MapPin, ShieldCheck, History } from 'lucide-react'
+  Calendar, User, Package, MapPin, ShieldCheck, History, Wallet, CalendarClock } from 'lucide-react'
 
 export const PUBLIC_NAV = [
   { label:'Home', to:'/' },
@@ -26,6 +26,7 @@ export const STAFF_NAV = [
   { label:'Assigned repairs', to:'/staff/repairs', icon:Wrench },
   { label:'Customer requests', to:'/staff/requests', icon:ClipboardList },
   { label:'Stock tasks', to:'/staff/stock', icon:Boxes },
+  { label:'My hours & pay', to:'/staff/shifts', icon:CalendarClock },
 ]
 
 export const ADMIN_NAV = [
@@ -40,6 +41,8 @@ export const ADMIN_NAV = [
   { label:'Payments', to:'/admin/payments', icon:CreditCard },
   { label:'Customers', to:'/admin/customers', icon:Users },
   { label:'Staff', to:'/admin/staff', icon:UserCog },
+  { label:'Timesheets', to:'/admin/timesheets', icon:CalendarClock },
+  { label:'Wages', to:'/admin/wages', icon:Wallet },
   { label:'Users', to:'/admin/users', icon:ShieldCheck },
   { label:'Branches', to:'/admin/branches', icon:MapPin },
   { label:'Reports', to:'/admin/reports', icon:BarChart3 },

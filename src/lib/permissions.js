@@ -50,10 +50,26 @@ const CAPABILITIES = {
   // branches
   manageBranches: [ADMIN],
 
+  // shifts / timesheets
+  // Staff submit their own hours; only an admin may approve, edit or reject them, and only
+  // approved hours are paid (see payableShifts() in src/lib/wages.js).
+  submitOwnShift: [STAFF],
+  viewOwnShifts: [STAFF, ADMIN],
+  viewAllShifts: [ADMIN],
+  reviewShifts: [ADMIN],
+  recordShiftForStaff: [ADMIN],
+
+  // wages
+  // A staff member may see their own hours and earnings; the payroll of the business —
+  // everyone's rates and the total wage bill — is admin-only.
+  viewOwnWages: [STAFF, ADMIN],
+  viewAllWages: [ADMIN],
+
   // platform
   manageSettings: [ADMIN],
   viewAuditLog: [ADMIN],
   viewFinancialReports: [ADMIN],
+  viewStockCosts: [ADMIN],
 }
 
 export function can(role, action){

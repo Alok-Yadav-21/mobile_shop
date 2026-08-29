@@ -6,10 +6,23 @@ import { PRODUCTS, CATEGORIES } from '@/data/products.js'
 import { BRANCHES } from '@/data/branches.js'
 import { SERVICES } from '@/data/services.js'
 import { USERS } from '@/data/users.js'
+import { DEMO_ORDERS } from '@/data/sales.js'
+import { DEMO_PURCHASES, generateBranchStock } from '@/data/purchases.js'
+import { SHIFTS } from '@/data/shifts.js'
 import { canTransition, requiresReason } from '@/constants/status.js'
 import { isSuperAdmin } from '@/lib/permissions.js'
+import { getSession } from '@/services/session.js'
+import {
+  requireCan, requireSelfOrAdmin, isAdmin, isStaff,
+  scopeRepairs, scopeOrders, scopeShifts, scopeTradeIns, scopeUsers,
+} from '@/lib/authz.js'
 
 const delay = (ms = 250) => new Promise((r) => setTimeout(r, ms))
+
+// The caller, resolved by the data layer rather than supplied by the page. Every scoped read
+// and guarded mutation below derives the caller from here, so a component cannot widen its
+// own access by passing a different actor or removing an argument.
+function currentActor() { return getSession() }
 
 function loadJSON(key, fallback) {
   try { const s = localStorage.getItem(key); if (s) return JSON.parse(s) } catch { /* ignore */ }
@@ -25,6 +38,7 @@ const KEYS = {
   notifications: 'vt_notifications', auditLog: 'vt_audit_log', repairParts: 'vt_repair_parts',
   inventoryMoves: 'vt_inventory_moves', customerNotes: 'vt_customer_notes', settings: 'vt_settings',
   addresses: 'vt_addresses', warranties: 'vt_warranties', services: 'vt_services', branchStock: 'vt_branch_stock',
+  purchases: 'vt_purchases', shifts: 'vt_shifts',
 }
 
 // --- seed helpers: merge operational fields (stock, status, active flags) onto the verified
@@ -46,12 +60,35 @@ function seedCategories() {
 function seedServices() {
   return SERVICES.map((s, i) => ({ id: 'svc'+i, active: true, archived: false, ...s }))
 }
+// The sales ledger, stock purchases and rota ship pre-populated with ~90 days of trading
+// history. Without it every report renders empty on a fresh browser, which makes them
+// impossible to evaluate. Real checkouts append to the same store.
+function seedOrders() { return DEMO_ORDERS }
+function seedPurchases() { return DEMO_PURCHASES }
+function seedShifts() { return SHIFTS }
+// Per-branch allocation of each product's total stock — derived from the seeded products so
+// the two always start consistent.
+function seedBranchStock() { return generateBranchStock(loadJSON(KEYS.products, seedProducts())) }
 
 export const RepairAPI = {
-  async list() { await delay(); return loadJSON(KEYS.repairs, REPAIRS) },
-  async forCustomer(phone) { await delay(); return loadJSON(KEYS.repairs, REPAIRS).filter((r) => r.phone === phone) },
-  async forBranch(branch) { await delay(); return loadJSON(KEYS.repairs, REPAIRS).filter((r) => r.branch === branch) },
-  async get(ref) { await delay(); return loadJSON(KEYS.repairs, REPAIRS).find((r) => r.ref === ref) },
+  // Scoped by the data layer: an admin sees every branch, a staff member only their own
+  // branch's queue, a customer only the repairs booked in their name.
+  async list() { await delay(); return scopeRepairs(currentActor(), loadJSON(KEYS.repairs, REPAIRS)) },
+  async forCustomer(phone) {
+    await delay()
+    return scopeRepairs(currentActor(), loadJSON(KEYS.repairs, REPAIRS)).filter((r) => r.phone === phone)
+  },
+  async forBranch(branch) {
+    await delay()
+    return scopeRepairs(currentActor(), loadJSON(KEYS.repairs, REPAIRS)).filter((r) => r.branch === branch)
+  },
+  // Looked up by reference straight from the URL, so this is exactly where a customer could
+  // otherwise read someone else's repair by editing the address bar. Resolving it out of the
+  // caller's own scoped set means an unrelated reference simply does not exist for them.
+  async get(ref) {
+    await delay()
+    return scopeRepairs(currentActor(), loadJSON(KEYS.repairs, REPAIRS)).find((r) => r.ref === ref)
+  },
   async create(data) {
     await delay()
     const list = loadJSON(KEYS.repairs, REPAIRS)
@@ -174,10 +211,10 @@ export const ProductAPI = {
     return loadJSON(KEYS.products, seedProducts()).filter((p) => p.active !== false && !p.archived && p.stock <= (p.lowStockThreshold ?? 3))
   },
   // --- per-branch stock allocation (informational breakdown on top of the total in p.stock) ---
-  async branchStock(id) { await delay(80); return loadJSON(KEYS.branchStock, []).filter((r) => r.productId === id) },
+  async branchStock(id) { await delay(80); return loadJSON(KEYS.branchStock, seedBranchStock()).filter((r) => r.productId === id) },
   async setBranchStock(id, branchId, quantity) {
     await delay()
-    const list = loadJSON(KEYS.branchStock, [])
+    const list = loadJSON(KEYS.branchStock, seedBranchStock())
     const row = list.find((r) => r.productId === id && r.branchId === branchId)
     if (row) row.quantity = quantity
     else list.push({ productId: id, branchId, quantity })
@@ -186,7 +223,7 @@ export const ProductAPI = {
   },
   async transferStock(id, fromBranchId, toBranchId, quantity) {
     await delay()
-    const list = loadJSON(KEYS.branchStock, [])
+    const list = loadJSON(KEYS.branchStock, seedBranchStock())
     const from = list.find((r) => r.productId === id && r.branchId === fromBranchId)
     if (!from || from.quantity < quantity) throw new Error('Not enough stock at the source branch to transfer.')
     from.quantity -= quantity
@@ -277,6 +314,16 @@ export const BranchAPI = {
     return out
   },
   async get(id) { await delay(); return loadJSON(KEYS.branches, seedBranches()).find((b) => b.id === id) },
+  // New branches open inactive so an admin can finish setting them up (staff, stock, hours)
+  // before they start appearing in customer-facing branch pickers.
+  async create(data) {
+    await delay()
+    const list = loadJSON(KEYS.branches, seedBranches())
+    const id = (data.id || data.area || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 6) || 'br' + Date.now()
+    if (list.some((b) => b.id === id)) throw new Error('A branch with that code already exists — choose a different name or code.')
+    const branch = { active: false, archived: false, lat: null, lng: null, ...data, id }
+    list.push(branch); saveJSON(KEYS.branches, list); return branch
+  },
   async nearest(pc) {
     await delay()
     const out = (pc || '').toUpperCase().replace(/\s+/g, '').match(/^[A-Z]{1,2}\d/)?.[0] || ''
@@ -319,13 +366,23 @@ export const CartAPI = {
 }
 
 export const OrderAPI = {
-  async list(customerId) { await delay(); return loadJSON(KEYS.orders, []).filter((o) => !customerId || o.customerId === customerId) },
-  async get(ref) { await delay(); return loadJSON(KEYS.orders, []).find((o) => o.reference === ref) },
+  // A customer sees only their own orders, staff only their branch's, an admin everything —
+  // enforced here, so the `customerId` argument can only ever narrow, never widen.
+  async list(customerId) {
+    await delay()
+    const out = scopeOrders(currentActor(), loadJSON(KEYS.orders, seedOrders()))
+    return out.filter((o) => !customerId || o.customerId === customerId)
+  },
+  // URL-addressed like RepairAPI.get, and scoped for the same reason.
+  async get(ref) {
+    await delay()
+    return scopeOrders(currentActor(), loadJSON(KEYS.orders, seedOrders())).find((o) => o.reference === ref)
+  },
   // creating an order reduces mock stock for each line item — checkout is the one place stock
   // actually moves, so cancellation (below) has something real to restore.
   async create(data) {
     await delay()
-    const list = loadJSON(KEYS.orders, [])
+    const list = loadJSON(KEYS.orders, seedOrders())
     const reference = 'VT-ORD-' + (10000 + list.length + 1)
     const order = { reference, status: 'paid', paymentStatus: 'test_mode', createdAt: Date.now(), ...data }
     list.unshift(order); saveJSON(KEYS.orders, list)
@@ -336,7 +393,7 @@ export const OrderAPI = {
   },
   async updateStatus(ref, status) {
     await delay()
-    const list = loadJSON(KEYS.orders, [])
+    const list = loadJSON(KEYS.orders, seedOrders())
     const o = list.find((x) => x.reference === ref)
     if (!o) return null
     o.status = status; saveJSON(KEYS.orders, list); return o
@@ -344,7 +401,7 @@ export const OrderAPI = {
   // eligible = not yet dispatched/completed; restores stock for each line item.
   async cancel(ref, reason) {
     await delay()
-    const list = loadJSON(KEYS.orders, [])
+    const list = loadJSON(KEYS.orders, seedOrders())
     const o = list.find((x) => x.reference === ref)
     if (!o) return null
     if (['dispatched', 'completed', 'cancelled'].includes(o.status)) throw new Error(`Order ${ref} can no longer be cancelled (status: ${o.status}).`)
@@ -357,8 +414,182 @@ export const OrderAPI = {
   },
 }
 
+// Timesheets. Staff submit their own hours; an admin reviews them; only approved hours are
+// payable (enforced by payableShifts() in src/lib/wages.js). Wages are always derived from
+// these records rather than stored, so an admin correcting an hours figure here immediately
+// corrects every wage total that follows from it.
+//
+// Authorization is applied here, not in the pages: `scopeShifts` narrows a staff member's
+// read to their own rows, and each mutation re-checks the caller. A page cannot opt out.
+export const ShiftAPI = {
+  async list(filters = {}) {
+    await delay()
+    const actor = currentActor()
+    let out = scopeShifts(actor, loadJSON(KEYS.shifts, seedShifts()))
+    if (filters.staffId) {
+      // Asking for someone else's timesheet is a denial, not an empty list.
+      requireSelfOrAdmin(actor, filters.staffId)
+      out = out.filter((s) => s.staffId === filters.staffId)
+    }
+    if (filters.branchId) out = out.filter((s) => s.branchId === filters.branchId)
+    if (filters.status) out = out.filter((s) => s.status === filters.status)
+    if (filters.from != null) out = out.filter((s) => s.at >= filters.from)
+    if (filters.to != null) out = out.filter((s) => s.at <= filters.to)
+    return out
+  },
+
+  // A staff member submits their own worked time. The staffId and branch come from the
+  // session, never from the payload — otherwise a crafted request could file hours against
+  // a colleague. Submissions always start pending; a caller cannot self-approve.
+  async create(data) {
+    await delay()
+    const actor = currentActor()
+    const forSelf = !data.staffId || data.staffId === actor?.id
+    if (forSelf) requireCan(actor, 'submitOwnShift')
+    else requireCan(actor, 'recordShiftForStaff')
+
+    const staffId = forSelf ? actor.id : data.staffId
+    const list = loadJSON(KEYS.shifts, seedShifts())
+    if (list.some((s) => s.staffId === staffId && s.date === data.date && s.status !== 'rejected')) {
+      throw new Error('There is already a shift recorded for that date. Edit the existing one instead.')
+    }
+    const owner = loadJSON(KEYS.users, seedUsers()).find((u) => u.id === staffId)
+    const shift = {
+      ...data,
+      id: 'sh' + Date.now(),
+      staffId,
+      branchId: data.branchId || owner?.branch || actor.branch || null,
+      at: new Date(data.date).getTime(),
+      breakMins: data.breakMins ?? 0,
+      // An admin recording hours on a staff member's behalf has, by definition, already
+      // approved them; a staff member's own submission has not been reviewed by anyone.
+      status: forSelf ? 'pending' : 'approved',
+      submittedBy: actor.id,
+      submittedAt: Date.now(),
+      reviewedBy: forSelf ? null : actor.id,
+      reviewedAt: forSelf ? null : Date.now(),
+      reviewNote: null,
+    }
+    list.push(shift); saveJSON(KEYS.shifts, list); return shift
+  },
+
+  // Editing the worked time. Staff may correct their own submission only while it is still
+  // pending — once an admin has signed it off, changing the hours is an admin action.
+  async update(id, patch) {
+    await delay()
+    const actor = currentActor()
+    const list = loadJSON(KEYS.shifts, seedShifts())
+    const s = list.find((x) => x.id === id)
+    if (!s) return null
+    if (!isAdmin(actor)) {
+      requireSelfOrAdmin(actor, s.staffId)
+      if (s.status !== 'pending') throw new Error('This shift has already been reviewed — ask an admin to change it.')
+    }
+    // Approval state is never editable through this path; it moves only via review/submit.
+    const { status, reviewedBy, reviewedAt, staffId, ...safe } = patch
+    Object.assign(s, safe)
+    if (safe.date) s.at = new Date(safe.date).getTime()
+    // An admin amending an approved shift keeps it approved but records who changed it.
+    if (isAdmin(actor) && s.status === 'approved') { s.reviewedBy = actor.id; s.reviewedAt = Date.now() }
+    saveJSON(KEYS.shifts, list); return s
+  },
+
+  // The admin decision. This is the only route to 'approved', and approval is what makes the
+  // hours payable — nothing else in the system flips that flag.
+  async review(id, decision, note) {
+    await delay()
+    const actor = currentActor()
+    requireCan(actor, 'reviewShifts')
+    if (!['approved', 'rejected'].includes(decision)) throw new Error('A shift can only be approved or rejected.')
+    if (decision === 'rejected' && !note?.trim()) throw new Error('A reason is required to reject submitted hours.')
+    const list = loadJSON(KEYS.shifts, seedShifts())
+    const s = list.find((x) => x.id === id)
+    if (!s) return null
+    s.status = decision
+    s.reviewNote = note?.trim() || null
+    s.reviewedBy = actor.id
+    s.reviewedAt = Date.now()
+    saveJSON(KEYS.shifts, list); return s
+  },
+
+  // Resubmit a rejected shift after correcting it — returns it to the pending queue.
+  async resubmit(id, patch = {}) {
+    await delay()
+    const actor = currentActor()
+    const list = loadJSON(KEYS.shifts, seedShifts())
+    const s = list.find((x) => x.id === id)
+    if (!s) return null
+    requireSelfOrAdmin(actor, s.staffId)
+    if (s.status !== 'rejected') throw new Error('Only a rejected shift can be resubmitted.')
+    const { status, reviewedBy, reviewedAt, staffId, ...safe } = patch
+    Object.assign(s, safe)
+    if (safe.date) s.at = new Date(safe.date).getTime()
+    s.status = 'pending'; s.reviewNote = null; s.reviewedBy = null; s.reviewedAt = null
+    s.submittedAt = Date.now()
+    saveJSON(KEYS.shifts, list); return s
+  },
+
+  async remove(id) {
+    await delay()
+    const actor = currentActor()
+    const list = loadJSON(KEYS.shifts, seedShifts())
+    const s = list.find((x) => x.id === id)
+    if (!s) return true
+    if (!isAdmin(actor)) {
+      requireSelfOrAdmin(actor, s.staffId)
+      if (s.status === 'approved') throw new Error('Approved hours can only be removed by an admin.')
+    }
+    saveJSON(KEYS.shifts, list.filter((x) => x.id !== id))
+    return true
+  },
+}
+
+// Stock purchase records — what a branch paid to restock. `unitCost` is captured per record
+// because a batch costs whatever was paid on the day; later price changes must not rewrite it.
+export const PurchaseAPI = {
+  // What the business pays for stock is admin-only commercial data — staff manage stock
+  // levels through ProductAPI without ever seeing cost prices or margins.
+  async list(filters = {}) {
+    await delay()
+    requireCan(currentActor(), 'viewStockCosts')
+    let out = loadJSON(KEYS.purchases, seedPurchases())
+    if (filters.branchId) out = out.filter((p) => p.branchId === filters.branchId)
+    if (filters.productId) out = out.filter((p) => p.productId === filters.productId)
+    if (filters.from != null) out = out.filter((p) => p.at >= filters.from)
+    if (filters.to != null) out = out.filter((p) => p.at <= filters.to)
+    return out
+  },
+  // Recording a purchase also moves the stock it bought into the receiving branch, so the
+  // cost report and the branch stock report can never drift apart.
+  async create(data) {
+    await delay()
+    requireCan(currentActor(), 'viewStockCosts')
+    const list = loadJSON(KEYS.purchases, seedPurchases())
+    const entry = { id: 'pur' + Date.now(), reference: 'VT-PO-' + (9000 + list.length + 1), at: Date.now(), ...data }
+    list.unshift(entry); saveJSON(KEYS.purchases, list)
+    if (entry.productId && entry.quantity > 0) {
+      try {
+        await ProductAPI.adjustStock(entry.productId, entry.quantity, `Purchase ${entry.reference}`)
+        const rows = loadJSON(KEYS.branchStock, seedBranchStock())
+        const row = rows.find((r) => r.productId === entry.productId && r.branchId === entry.branchId)
+        if (row) row.quantity += entry.quantity
+        else rows.push({ productId: entry.productId, branchId: entry.branchId, quantity: entry.quantity })
+        saveJSON(KEYS.branchStock, rows)
+      } catch { /* a stock-sync failure must not lose the purchase record itself */ }
+    }
+    return entry
+  },
+  // Stock *levels* are operational data staff legitimately need; only the cost of buying
+  // that stock is restricted, so this deliberately carries no financial guard.
+  async allBranchStock() { await delay(80); return loadJSON(KEYS.branchStock, seedBranchStock()) },
+}
+
 export const TradeInAPI = {
-  async list(customerId) { await delay(); return loadJSON(KEYS.tradeIns, []).filter((t) => !customerId || t.customerId === customerId) },
+  async list(customerId) {
+    await delay()
+    const out = scopeTradeIns(currentActor(), loadJSON(KEYS.tradeIns, []))
+    return out.filter((t) => !customerId || t.customerId === customerId)
+  },
   async get(ref) { await delay(); return loadJSON(KEYS.tradeIns, []).find((t) => t.reference === ref) },
   async create(data) {
     await delay()
@@ -387,8 +618,13 @@ export const TradeInAPI = {
 }
 
 export const UserAPI = {
-  async list() { await delay(); return loadJSON(KEYS.users, seedUsers()) },
-  async get(id) { await delay(); return loadJSON(KEYS.users, seedUsers()).find((u) => u.id === id) },
+  // Pay rates are compensation data. Admins see everything; staff see colleagues without
+  // their rates; a customer sees only their own record.
+  async list() { await delay(); return scopeUsers(currentActor(), loadJSON(KEYS.users, seedUsers())) },
+  async get(id) {
+    await delay()
+    return scopeUsers(currentActor(), loadJSON(KEYS.users, seedUsers())).find((u) => u.id === id)
+  },
   // actor is the signed-in admin performing the action — passed through so the adapter can
   // enforce the same rules the UI already hides buttons for (defence in depth, not just UX).
   async create(data, actor) {
@@ -508,6 +744,7 @@ export const AuditAPI = {
   },
   async list(filters = {}) {
     await delay()
+    requireCan(currentActor(), 'viewAuditLog')
     let out = loadJSON(KEYS.auditLog, [])
     if (filters.entityType) out = out.filter((l) => l.entityType === filters.entityType)
     if (filters.actorId) out = out.filter((l) => l.actorId === filters.actorId)
