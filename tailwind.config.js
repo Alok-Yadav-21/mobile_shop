@@ -18,53 +18,54 @@ export default {
   			mono: ['ui-monospace', '"Cascadia Code"', '"JetBrains Mono"', '"SFMono-Regular"', 'Menlo', 'Consolas', 'monospace']
   		},
   		colors: {
-  			// Indigo primary with a teal signal on deep slate. Token NAMES are unchanged from the
-  			// previous blue palette on purpose — every component already references brand/signal/
-  			// ink/graphite, so re-pointing the values re-skins the whole platform without touching
-  			// a single component file.
+  			// Light-first retail palette taken from the reference design: white and near-black
+  			// carry the page, a single red drives every call to action, and the saturated
+  			// category colours only ever appear as whole blocks — never as text or borders.
+  			// Token names are unchanged so the dashboards re-skin with the marketing pages.
   			brand: {
-  				'50': '#EEF2FF',
-  				'100': '#E0E7FF',
-  				'400': '#818CF8',
-  				'600': '#4F46E5',
-  				'700': '#4338CA',
-  				DEFAULT: '#4F46E5'
+  				'50': '#FFF1F2',
+  				'100': '#FFE0E2',
+  				'400': '#FF6B73',
+  				'600': '#F5333F',
+  				'700': '#D91E2A',
+  				DEFAULT: '#F5333F'
   			},
-  			// Secondary in the gradient pair. Kept close to the primary so the sweep reads as one
-  			// colour deepening rather than two colours fighting.
+  			// Category block colours. Used as backgrounds behind cut-out product shots.
+  			sun:   { DEFAULT: '#FFC93C', '600': '#F2B417' },
+  			grass: { DEFAULT: '#21C25E', '600': '#17A34B' },
+  			sky:   { DEFAULT: '#2D7FF9', '600': '#1B66DB' },
   			violet: {
   				'50': '#F5F3FF',
   				'600': '#7C5CFF',
   				DEFAULT: '#7C5CFF'
   			},
   			electric: {
-  				'500': '#06B6D4',
-  				DEFAULT: '#06B6D4'
+  				'500': '#2D7FF9',
+  				DEFAULT: '#2D7FF9'
   			},
-  			// The accent that means "live" — status dots, success, active branches.
+  			// Success / live. Matches the green category block so the palette stays closed.
   			signal: {
-  				'50': '#ECFDF7',
-  				'500': '#14B8A6',
-  				DEFAULT: '#14B8A6'
+  				'50': '#E8F9EF',
+  				'500': '#21C25E',
+  				DEFAULT: '#21C25E'
   			},
-  			// Deep slate rather than near-black: it holds the indigo without turning muddy, and
-  			// keeps large dark panels feeling like a surface instead of a hole.
+  			// Near-black rather than navy — the reference has no blue in its neutrals.
   			ink: {
-  				'800': '#152036',
-  				'900': '#0B1220',
-  				DEFAULT: '#0F172A'
+  				'800': '#1F1F1F',
+  				'900': '#0D0D0D',
+  				DEFAULT: '#141414'
   			},
   			graphite: {
-  				'50': '#F8FAFC',
-  				'100': '#F1F5F9',
-  				'200': '#E2E8F0',
-  				'400': '#94A3B8',
-  				'600': '#475569',
-  				'700': '#334155',
-  				'800': '#1E293B',
-  				DEFAULT: '#475569'
+  				'50': '#F7F7F7',
+  				'100': '#F0F0F0',
+  				'200': '#E4E4E4',
+  				'400': '#9A9A9A',
+  				'600': '#5A5A5A',
+  				'700': '#3D3D3D',
+  				'800': '#262626',
+  				DEFAULT: '#5A5A5A'
   			},
-  			paper: '#FBFBFA',
+  			paper: '#FFFFFF',
   			border: 'hsl(var(--border))',
   			input: 'hsl(var(--input))',
   			ring: 'hsl(var(--ring))',
