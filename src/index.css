@@ -114,3 +114,16 @@ body{ @apply bg-white text-ink antialiased; font-family: theme('fontFamily.sans'
   .no-scrollbar::-webkit-scrollbar{ display:none; }
   .no-scrollbar{ -ms-overflow-style:none; scrollbar-width:none; }
 }
+
+/* Anyone who has asked their system for less motion gets a still interface. Transforms and
+   fades are the decoration here, never the thing that conveys state, so removing them costs
+   no information. Kept as a global backstop so a component that forgets to check the
+   preference still honours it. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

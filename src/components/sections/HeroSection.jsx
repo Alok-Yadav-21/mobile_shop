@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowRight, Search, ShieldCheck, Star, Activity } from 'lucide-react'
+import { Spotlight } from '@/components/ui-fx/Spotlight.jsx'
 import heroImg from '@/assets/img/hero.jpg'
 import { BRAND } from '@/constants/brand.js'
 
@@ -14,6 +15,7 @@ export function HeroSection(){
   return (
     <section className="relative overflow-hidden bg-ink-900 text-white">
       <div className="absolute inset-0 bg-grid [background-size:26px_26px] opacity-[.35]"/>
+      <Spotlight className="-top-40 left-0 md:left-60 md:-top-20 h-[180%] w-[180%]"/>
       <div className="absolute top-0 right-0 w-[45%] h-full bg-gradient-to-l from-brand/[.08] to-transparent"/>
       <div className="container-x relative grid lg:grid-cols-[1.05fr_.95fr] gap-14 items-center py-16 sm:py-24">
         <motion.div initial={{opacity:0,y:16}} animate={{opacity:1,y:0}} transition={{duration:.5}}>
