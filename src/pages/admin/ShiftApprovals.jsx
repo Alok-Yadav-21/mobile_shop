@@ -9,7 +9,7 @@ import { useAsync } from '@/hooks/useAsync.js'
 import { ShiftAPI, UserAPI, BranchAPI } from '@/services/api.js'
 import { can } from '@/lib/permissions.js'
 import { logAction } from '@/services/auditService.js'
-import { shiftHours, shiftWage, isFullDay, rateFor, dailyRateFor, round2 } from '@/lib/wages.js'
+import { shiftHours, shiftWage, suggestedPay, isFullDay, rateFor, dailyRateFor, round2 } from '@/lib/wages.js'
 import {
   SHIFT_STATUSES, SHIFT_STATUS_LABELS, ENTRY_MODES, ENTRY_MODE_LABELS,
   MIN_SHIFT_HOURS, MAX_SHIFT_HOURS,
@@ -53,6 +53,10 @@ export default function ShiftApprovals() {
   const [q, setQ] = useState('')
   const [editing, setEditing] = useState(null)
   const [rejecting, setRejecting] = useState(null)
+  // Approving is where the money is decided, so it opens a dialog rather than firing straight
+  // away: {shift, amount}. The amount is prefilled from the staff member's standing rates as
+  // a starting point the admin can change before confirming.
+  const [approving, setApproving] = useState(null)
 
   const canReview = can(me?.role, 'reviewShifts')
 
@@ -77,22 +81,22 @@ export default function ShiftApprovals() {
   }, [shifts, statusFilter, branchFilter, q, staffById])
 
   const pendingAll = shifts.filter((s) => s.status === 'pending')
-  const pendingValue = round2(pendingAll.reduce((sum, s) => sum + shiftWage(s, staffById[s.staffId]), 0))
+  const pendingValue = round2(pendingAll.reduce((sum, s) => sum + suggestedPay(s, staffById[s.staffId]), 0))
   const pendingHours = round2(pendingAll.reduce((sum, s) => sum + shiftHours(s), 0))
 
-  const decide = async (shift, decision, note) => {
+  const decide = async (shift, decision, note, pay) => {
     try {
-      await ShiftAPI.review(shift.id, decision, note)
+      await ShiftAPI.review(shift.id, decision, note, pay)
       logAction({
         user: me, action: `shift.${decision}`, entityType: 'shift', entityId: shift.id,
-        reason: note ?? undefined, after: { status: decision },
+        reason: note ?? undefined, after: { status: decision, approvedPay: pay ?? null },
       })
       toast.success(
         decision === 'approved'
-          ? `${staffById[shift.staffId]?.name ?? 'Hours'} approved — now included in wage calculations`
+          ? `Approved — ${moneyExact(pay)} added to ${staffById[shift.staffId]?.name ?? 'staff'} earnings`
           : `${staffById[shift.staffId]?.name ?? 'Hours'} rejected`,
       )
-      setRejecting(null); refetch()
+      setRejecting(null); setApproving(null); refetch()
     } catch (e) { toast.error(e.message || 'Could not record that decision') }
   }
 
@@ -135,7 +139,7 @@ export default function ShiftApprovals() {
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <DashboardCard icon={Hourglass} label="Awaiting review" value={pendingAll.length} tone={pendingAll.length ? 'amber' : 'green'} />
-        <DashboardCard icon={PoundSterling} label="Value if all approved" value={moneyExact(pendingValue)} tone="violet" />
+        <DashboardCard icon={PoundSterling} label="Value at standing rates" value={moneyExact(pendingValue)} tone="violet" />
         <DashboardCard icon={CheckCircle2} label="Approved" value={shifts.filter((s) => s.status === 'approved').length} tone="green" />
         <DashboardCard icon={XCircle} label="Rejected" value={shifts.filter((s) => s.status === 'rejected').length} tone="brand" />
       </div>
@@ -189,7 +193,11 @@ export default function ShiftApprovals() {
                       <Td className="mono-data text-graphite-500">
                         {fullDay ? `${moneyExact(dailyRateFor(staff))}/day` : `${moneyExact(rateFor(staff))}/h`}
                       </Td>
-                      <Td className="mono-data font-bold">{moneyExact(shiftWage(s, staff))}</Td>
+                      <Td className="mono-data font-bold">
+                        {s.status === 'approved' && s.approvedPay != null
+                          ? moneyExact(s.approvedPay)
+                          : <span className="font-normal text-graphite-400">{moneyExact(suggestedPay(s, staff))}</span>}
+                      </Td>
                       <Td className="text-[12px] text-graphite-400">{timeAgo(s.submittedAt)}</Td>
                       <Td>
                         <ShiftStatusBadge status={s.status} />
@@ -201,7 +209,7 @@ export default function ShiftApprovals() {
                             <Pencil size={13} /> Edit
                           </button>
                           {s.status !== 'approved' && (
-                            <button onClick={() => decide(s, 'approved')} className="text-[12px] font-semibold text-emerald-600 hover:underline inline-flex items-center gap-1">
+                            <button onClick={() => setApproving({ shift: s, amount: String(suggestedPay(s, staff)) })} className="text-[12px] font-semibold text-emerald-600 hover:underline inline-flex items-center gap-1">
                               <Check size={13} /> Approve
                             </button>
                           )}
@@ -281,6 +289,66 @@ export default function ShiftApprovals() {
                 <button type="submit" disabled={isSubmitting} className="btn btn-brand btn-sm">Save correction</button>
               </DialogFooter>
             </form>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {approving && (
+        <Dialog open={!!approving} onOpenChange={(o) => !o && setApproving(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Approve {staffById[approving.shift.staffId]?.name}&rsquo;s {fmtDate(approving.shift.at)}</DialogTitle>
+            </DialogHeader>
+
+            <div className="bg-graphite-50 rounded-xl px-4 py-3 text-[12.5px] space-y-1.5 mb-1">
+              <div className="flex justify-between"><span className="text-graphite-400">Recorded as</span>
+                <span className="font-semibold">
+                  {isFullDay(approving.shift) ? 'Full day'
+                    : approving.shift.entryMode === 'hours' ? `${approving.shift.hours}h entered`
+                    : `${approving.shift.start}–${approving.shift.end}${approving.shift.breakMins ? ` · ${approving.shift.breakMins}m break` : ''}`}
+                </span>
+              </div>
+              <div className="flex justify-between"><span className="text-graphite-400">Time</span>
+                <span className="font-semibold mono-data">{isFullDay(approving.shift) ? '1 day' : hoursFmt(shiftHours(approving.shift))}</span>
+              </div>
+              <div className="flex justify-between"><span className="text-graphite-400">Standing rate</span>
+                <span className="font-semibold mono-data">
+                  {isFullDay(approving.shift)
+                    ? `${moneyExact(dailyRateFor(staffById[approving.shift.staffId]))}/day`
+                    : `${moneyExact(rateFor(staffById[approving.shift.staffId]))}/h`}
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="approve-amount" className="block text-[12px] font-semibold text-graphite-500 mb-1.5">
+                Amount to pay for this shift
+              </label>
+              <input
+                id="approve-amount" type="number" step="0.01" min="0" autoFocus
+                value={approving.amount}
+                onChange={(e) => setApproving((a) => ({ ...a, amount: e.target.value }))}
+                className="input-field"
+              />
+              <p className="text-[11.5px] text-graphite-400 mt-1.5">
+                Prefilled from the standing rate — change it if this shift is worth more or less. This exact amount is what enters the staff member&rsquo;s earnings.
+              </p>
+            </div>
+
+            <DialogFooter>
+              <button type="button" onClick={() => setApproving(null)} className="btn btn-ghost btn-sm">Cancel</button>
+              <button
+                type="button"
+                onClick={() => {
+                  const amount = Number(approving.amount)
+                  if (!Number.isFinite(amount) || amount < 0) { toast.error('Enter a valid amount to pay.'); return }
+                  decide(approving.shift, 'approved', null, round2(amount))
+                }}
+                className="btn btn-brand btn-sm"
+              >
+                Confirm &amp; approve
+              </button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       )}

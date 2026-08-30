@@ -7,7 +7,7 @@ import { useAuth } from '@/hooks/useAuth.js'
 import { useAsync } from '@/hooks/useAsync.js'
 import { ShiftAPI, BranchAPI } from '@/services/api.js'
 import { can } from '@/lib/permissions.js'
-import { summariseShifts, shiftHours, shiftWage, isFullDay, rateFor, dailyRateFor } from '@/lib/wages.js'
+import { summariseShifts, shiftHours, isFullDay } from '@/lib/wages.js'
 import {
   ENTRY_MODES, ENTRY_MODE_LABELS, MIN_SHIFT_HOURS, MAX_SHIFT_HOURS,
 } from '@/constants/shifts.js'
@@ -132,7 +132,7 @@ export default function MyShifts() {
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight mb-1">My hours &amp; pay</h1>
           <p className="text-graphite-400 text-[14px]">
-            Submit the time you worked. An admin reviews each entry, and only approved hours count toward your pay.
+            Record the time you worked. An admin reviews each entry and confirms what it pays — only approved entries count toward your earnings.
           </p>
         </div>
         {canSubmit && <button onClick={openNew} className="btn btn-brand btn-sm shrink-0"><Plus size={15} /> Add hours</button>}
@@ -149,10 +149,12 @@ export default function MyShifts() {
 
       {canSeeOwnPay && (
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <DashboardCard icon={PoundSterling} label={`Approved earnings · ${moneyExact(rateFor(me))}/h · ${moneyExact(dailyRateFor(me))}/day`} value={moneyExact(approvedTotals.wage)} tone="green" />
+          {/* Total earnings only. Pay rates are set by an admin and are not shown here —
+              the amount for each shift is whatever the admin confirms at approval. */}
+          <DashboardCard icon={PoundSterling} label="Approved earnings" value={moneyExact(approvedTotals.wage)} tone="green" />
           <DashboardCard icon={Clock} label="Approved hourly time" value={hoursFmt(approvedTotals.hours)} tone="brand" />
           <DashboardCard icon={CalendarDays} label={`Days worked · ${approvedTotals.fullDays} full ${approvedTotals.fullDays === 1 ? 'day' : 'days'}`} value={approvedTotals.days} tone="violet" />
-          <DashboardCard icon={Hourglass} label={`Awaiting review · ${moneyExact(pendingTotals.wage)}`} value={pending.length} tone="amber" />
+          <DashboardCard icon={Hourglass} label={`Awaiting review · ${hoursFmt(pendingTotals.hours)} + ${pendingTotals.fullDays} full ${pendingTotals.fullDays === 1 ? 'day' : 'days'}`} value={pending.length} tone="amber" />
         </div>
       )}
 
@@ -184,10 +186,11 @@ export default function MyShifts() {
                       {/* A full day is a day, not an hours figure — showing an hour count here
                           would reintroduce the very conversion this mode exists to avoid. */}
                       <Td className="mono-data">{fullDay ? '1 day' : hoursFmt(shiftHours(s))}</Td>
+                      {/* An amount appears only once an admin has approved and set it. */}
                       <Td className="mono-data">
-                        {s.status === 'approved'
-                          ? <span className="font-bold">{moneyExact(shiftWage(s, me))}</span>
-                          : <span className="text-graphite-400">{s.status === 'rejected' ? '—' : 'Pending'}</span>}
+                        {s.status === 'approved' && s.approvedPay != null
+                          ? <span className="font-bold">{moneyExact(s.approvedPay)}</span>
+                          : <span className="text-graphite-400">{s.status === 'rejected' ? '—' : 'Awaiting admin'}</span>}
                       </Td>
                       <Td><ShiftStatusBadge status={s.status} /></Td>
                       <Td className="text-[12px] text-graphite-500 max-w-[220px]">{s.reviewNote || '—'}</Td>
@@ -250,7 +253,7 @@ export default function MyShifts() {
 
               {entryMode === 'full_day' && (
                 <p className="text-[12.5px] text-graphite-500 bg-graphite-50 rounded-xl px-3.5 py-2.5">
-                  A full day is paid at your day rate of <span className="font-bold mono-data">{moneyExact(dailyRateFor(me))}</span> — no hours needed.
+                  Record the whole day — no hours needed. Your admin confirms what it pays when they approve it.
                 </p>
               )}
 
@@ -282,7 +285,7 @@ export default function MyShifts() {
               )}
 
               <p className="text-[11.5px] text-graphite-400">
-                Submitted hours go to an admin for review. They are not included in your pay until approved.
+                Your admin reviews this and sets the amount it pays. Nothing counts toward your earnings until they approve it.
               </p>
 
               <DialogFooter>

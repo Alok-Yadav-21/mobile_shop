@@ -59,9 +59,25 @@ export function dailyRateFor(staff) {
   return Number.isFinite(rate) && rate > 0 ? rate : DEFAULT_DAILY_RATE
 }
 
-// The one place that decides which pay basis a shift uses.
+// What a shift WOULD be worth at the staff member's standing rates. This is only ever a
+// starting figure for the admin reviewing it — it is not what gets paid, and it is never
+// shown to the staff member, because rates are admin-only.
+export function suggestedPay(shift, staff) {
+  return round2(isFullDay(shift) ? dailyRateFor(staff) : shiftHours(shift) * rateFor(staff))
+}
+
+// What a shift is actually worth: the amount the admin entered and confirmed when they
+// approved it. Pay is a decision, not a derivation — an admin can pay a full day more or
+// less than the standing day rate, and that decision is what the payroll reflects.
+//
+// The rate-derived fallback covers rota records that predate per-shift approval amounts, so
+// historical payroll does not silently drop to zero.
 export function shiftWage(shift, staff) {
-  return isFullDay(shift) ? dailyRateFor(staff) : shiftHours(shift) * rateFor(staff)
+  // Checked for null/undefined before coercing: Number(null) is 0, not NaN, so coercing first
+  // would silently pay zero for a shift that simply has no agreed amount yet.
+  if (shift?.approvedPay == null) return suggestedPay(shift, staff)
+  const confirmed = Number(shift.approvedPay)
+  return Number.isFinite(confirmed) && confirmed >= 0 ? confirmed : suggestedPay(shift, staff)
 }
 
 // Full days counted as days — the counterpart to shiftHours for day-rate work.

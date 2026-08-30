@@ -464,6 +464,9 @@ export const ShiftAPI = {
       // An admin recording hours on a staff member's behalf has, by definition, already
       // approved them; a staff member's own submission has not been reviewed by anyone.
       status: forSelf ? 'pending' : 'approved',
+      // Never taken from the payload: what a shift is worth is an admin decision made at
+      // approval, so a submission cannot arrive carrying its own price.
+      approvedPay: forSelf ? null : (Number.isFinite(Number(data.approvedPay)) ? Math.round(Number(data.approvedPay) * 100) / 100 : null),
       submittedBy: actor.id,
       submittedAt: Date.now(),
       reviewedBy: forSelf ? null : actor.id,
@@ -485,8 +488,9 @@ export const ShiftAPI = {
       requireSelfOrAdmin(actor, s.staffId)
       if (s.status !== 'pending') throw new Error('This shift has already been reviewed — ask an admin to change it.')
     }
-    // Approval state is never editable through this path; it moves only via review/submit.
-    const { status, reviewedBy, reviewedAt, staffId, ...safe } = patch
+    // Approval state and the agreed amount are never editable through this path: status moves
+    // only via review/submit, and pay only via review/setPay, which are admin-gated.
+    const { status, reviewedBy, reviewedAt, staffId, approvedPay, ...safe } = patch
     Object.assign(s, safe)
     if (safe.date) s.at = new Date(safe.date).getTime()
     // An admin amending an approved shift keeps it approved but records who changed it.
@@ -494,19 +498,48 @@ export const ShiftAPI = {
     saveJSON(KEYS.shifts, list); return s
   },
 
-  // The admin decision. This is the only route to 'approved', and approval is what makes the
-  // hours payable — nothing else in the system flips that flag.
-  async review(id, decision, note) {
+  // The admin decision, and the only route to 'approved'. Approving is also where the money
+  // is decided: the admin confirms what the shift is worth, and that amount — not a rate the
+  // staff member could apply themselves — is what enters payroll.
+  async review(id, decision, note, pay) {
     await delay()
     const actor = currentActor()
     requireCan(actor, 'reviewShifts')
     if (!['approved', 'rejected'].includes(decision)) throw new Error('A shift can only be approved or rejected.')
     if (decision === 'rejected' && !note?.trim()) throw new Error('A reason is required to reject submitted hours.')
+
     const list = loadJSON(KEYS.shifts, seedShifts())
     const s = list.find((x) => x.id === id)
     if (!s) return null
+
+    if (decision === 'approved') {
+      const amount = Number(pay)
+      if (!Number.isFinite(amount) || amount < 0) throw new Error('Enter the amount to pay for this shift before approving it.')
+      s.approvedPay = Math.round(amount * 100) / 100
+    } else {
+      // A rejected shift is worth nothing, so any previously agreed amount is cleared rather
+      // than left behind to reappear if it is approved again later.
+      s.approvedPay = null
+    }
+
     s.status = decision
     s.reviewNote = note?.trim() || null
+    s.reviewedBy = actor.id
+    s.reviewedAt = Date.now()
+    saveJSON(KEYS.shifts, list); return s
+  },
+
+  // Correcting the agreed amount on an already-approved shift, without re-running review.
+  async setPay(id, pay) {
+    await delay()
+    const actor = currentActor()
+    requireCan(actor, 'reviewShifts')
+    const amount = Number(pay)
+    if (!Number.isFinite(amount) || amount < 0) throw new Error('Enter a valid amount.')
+    const list = loadJSON(KEYS.shifts, seedShifts())
+    const s = list.find((x) => x.id === id)
+    if (!s) return null
+    s.approvedPay = Math.round(amount * 100) / 100
     s.reviewedBy = actor.id
     s.reviewedAt = Date.now()
     saveJSON(KEYS.shifts, list); return s
@@ -521,10 +554,10 @@ export const ShiftAPI = {
     if (!s) return null
     requireSelfOrAdmin(actor, s.staffId)
     if (s.status !== 'rejected') throw new Error('Only a rejected shift can be resubmitted.')
-    const { status, reviewedBy, reviewedAt, staffId, ...safe } = patch
+    const { status, reviewedBy, reviewedAt, staffId, approvedPay, ...safe } = patch
     Object.assign(s, safe)
     if (safe.date) s.at = new Date(safe.date).getTime()
-    s.status = 'pending'; s.reviewNote = null; s.reviewedBy = null; s.reviewedAt = null
+    s.status = 'pending'; s.reviewNote = null; s.reviewedBy = null; s.reviewedAt = null; s.approvedPay = null
     s.submittedAt = Date.now()
     saveJSON(KEYS.shifts, list); return s
   },
