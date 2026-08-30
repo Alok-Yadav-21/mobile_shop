@@ -9,7 +9,7 @@ export function Footer(){
       <div className="container-x grid lg:grid-cols-12 gap-10 py-16">
         <div className="lg:col-span-4">
           <div className="flex items-center gap-2.5">
-            <span className="w-9 h-9 rounded-lg bg-gradient-to-br from-brand to-violet grid place-items-center text-white font-extrabold text-[17px]">V</span>
+            <span className="w-9 h-9 rounded-lg bg-brand grid place-items-center text-white font-extrabold text-[17px]">V</span>
             <div><div className="text-white font-extrabold text-lg leading-none">{BRAND.name}</div>
               <div className="text-[9.5px] uppercase tracking-[.12em] text-slate-500 mt-1 font-semibold">{BRAND.tagline}</div></div>
           </div>

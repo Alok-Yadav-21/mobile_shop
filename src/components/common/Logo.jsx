@@ -18,7 +18,7 @@ export function Logo({ light = false, sub = true, className = '' }) {
           >
             Virk
           </span>
-          <span className="font-semibold text-[19px] tracking-[-.03em] text-signal">tech</span>
+          <span className="font-semibold text-[19px] tracking-[-.03em] text-brand">tech</span>
         </span>
         {sub && (
           <span
@@ -36,12 +36,12 @@ export function Logo({ light = false, sub = true, className = '' }) {
 export function LogoMark({ size = 36, className = '' }) {
   return (
     <span
-      className={`rounded-xl bg-gradient-to-br from-brand to-violet grid place-items-center text-white font-extrabold relative shadow-elevate ${className}`}
+      className={`rounded-xl bg-ink grid place-items-center text-white font-extrabold relative shadow-elevate ${className}`}
       style={{ width: size, height: size, fontSize: size * 0.47 }}
       aria-hidden="true"
     >
       V
-      <span className="absolute right-1.5 bottom-1.5 w-1 h-1 rounded-[1px] bg-signal" />
+      <span className="absolute right-1.5 bottom-1.5 w-1 h-1 rounded-[1px] bg-brand" />
     </span>
   )
 }

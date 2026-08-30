@@ -112,7 +112,7 @@ export function Topbar({ title, nav, navTitle }) {
           </PopoverContent>
         </Popover>
 
-        <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-brand to-violet text-white grid place-items-center font-bold text-[13px]">
+        <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-ink text-white grid place-items-center font-bold text-[13px]">
           {(user?.name || 'U')[0]}
         </div>
       </div>
