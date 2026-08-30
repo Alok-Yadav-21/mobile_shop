@@ -5,7 +5,7 @@ import { LayoutDashboard, Wrench, ClipboardList, PackageSearch, ShoppingBag, Use
 export const PUBLIC_NAV = [
   { label:'Home', to:'/' },
   { label:'Services', to:'/services' },
-  { label:'Repairs', to:'/repair-services' },
+  { label:'Repair prices', to:'/repair-services' },
   { label:'Buy & Sell', to:'/buy-sell' },
   { label:'Products', to:'/products' },
   { label:'About', to:'/about' },
