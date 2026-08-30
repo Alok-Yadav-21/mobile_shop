@@ -13,6 +13,7 @@ import {
 } from '@/constants/shifts.js'
 import { DashboardCard } from '@/components/common/DashboardCard.jsx'
 import { EmptyState } from '@/components/common/EmptyState.jsx'
+import { TableSkeleton } from '@/components/common/TableSkeleton.jsx'
 import { ShiftStatusBadge } from '@/components/common/ShiftStatusBadge.jsx'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog.jsx'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog.jsx'
@@ -164,7 +165,7 @@ export default function MyShifts() {
           Pending entries can still be edited or withdrawn. Once approved, ask an admin to make any change.
         </p>
 
-        {loading ? <div className="text-graphite-400 text-[13px] py-6">Loading your shifts…</div>
+        {loading ? <TableSkeleton rows={5} cols={6}/>
           : mine.length === 0 ? <EmptyState title="You haven't submitted any hours yet" />
           : (
             <Table>
