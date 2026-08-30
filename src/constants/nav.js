@@ -6,8 +6,8 @@ export const PUBLIC_NAV = [
   { label:'Home', to:'/' },
   { label:'Services', to:'/services' },
   { label:'Repair prices', to:'/repair-services' },
-  { label:'Buy & Sell', to:'/buy-sell' },
-  { label:'Products', to:'/products' },
+  { label:'Shop', to:'/products' },
+  { label:'Sell your device', to:'/buy-sell' },
   { label:'About', to:'/about' },
   { label:'Contact', to:'/contact' },
 ]
