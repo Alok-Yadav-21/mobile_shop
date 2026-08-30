@@ -4,6 +4,7 @@ import { ServiceCard } from '@/components/common/ServiceCard.jsx'
 import { SERVICES } from '@/data/services.js'
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion.jsx'
 import { Activity, ShieldCheck, ArrowRight, Battery, ScreenShare, HardDrive, Cpu } from 'lucide-react'
+import { HoverEffectGrid } from '@/components/ui-fx/HoverEffectGrid.jsx'
 
 const CHECKS = [
   { icon:Battery, t:'Battery health', d:'Cycle count, capacity and charging behaviour.' },
@@ -47,14 +48,16 @@ export default function RepairServices(){
           <h2 className="text-3xl font-extrabold tracking-tight mt-3">What a full check covers</h2>
           <p className="text-graphite-500 mt-3 max-w-md leading-relaxed">Before any quote, every device goes through the same four-point diagnostic — so you know exactly what's wrong, and exactly what it costs to fix.</p>
         </div>
-        <div className="grid sm:grid-cols-2 gap-4">
-          {CHECKS.map(c=>(
-            <div key={c.t} className="bento-tile flex items-start gap-3">
+        <HoverEffectGrid
+          className="sm:grid-cols-2 gap-4"
+          items={CHECKS.map(c=>({ ...c, id:c.t }))}
+          renderItem={(c)=>(
+            <div className="bento-tile flex items-start gap-3 h-full bg-transparent">
               <div className="w-9 h-9 rounded-lg bg-brand-50 text-brand grid place-items-center flex-none"><c.icon size={17}/></div>
               <div><div className="font-bold text-[14px]">{c.t}</div><div className="text-[12.5px] text-graphite-400 mt-1 leading-relaxed">{c.d}</div></div>
             </div>
-          ))}
-        </div>
+          )}
+        />
       </div>
     </section>
 
