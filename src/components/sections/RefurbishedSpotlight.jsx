@@ -12,7 +12,7 @@ export function RefurbishedSpotlight(){
   if(!sample) return null
   return (
     <section className="container-x py-6">
-      <div className="rounded-3xl bg-gradient-to-br from-brand to-violet text-white p-8 sm:p-12 grid lg:grid-cols-[1.1fr_.9fr] gap-10 items-center relative overflow-hidden">
+      <div className="rounded-3xl bg-ink text-white p-8 sm:p-12 grid lg:grid-cols-[1.1fr_.9fr] gap-10 items-center relative overflow-hidden">
         <div className="absolute -right-10 -top-16 w-64 h-64 rounded-full bg-white/[.08]" aria-hidden/>
         <div className="relative">
           <Recycle size={26}/>

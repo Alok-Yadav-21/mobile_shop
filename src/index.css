@@ -78,7 +78,7 @@ body{ @apply bg-white text-ink antialiased; font-family: theme('fontFamily.sans'
   .btn-sm{ @apply px-4 py-2 text-[13px] rounded-lg; }
   .card{ @apply bg-white border border-slate-200 rounded-2xl; }
   .eyebrow{ @apply text-[12px] font-bold tracking-[0.14em] uppercase text-brand; }
-  .grad-text{ @apply bg-gradient-to-r from-brand to-violet bg-clip-text text-transparent; }
+  .grad-text{ @apply bg-gradient-to-r from-brand to-brand-700 bg-clip-text text-transparent; }
 
   /* --- Premium design-system primitives (M3) --- */
   /* Asymmetric bento grid: children opt into span via .bento-lg / .bento-tall */

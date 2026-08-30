@@ -37,7 +37,7 @@ function NavList({ nav, onNavigate, idPrefix = 'nav' }) {
                   />
                 )}
                 {isActive && (
-                  <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-gradient-to-b from-brand to-violet z-10" />
+                  <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-brand z-10" />
                 )}
                 <span className="relative z-10 flex items-center gap-3">
                   {Icon && <Icon size={17} />}
@@ -61,7 +61,7 @@ export function Sidebar({ nav, title }) {
       <NavList nav={nav} idPrefix="sidebar" />
       <div className="mt-auto pt-4 border-t border-white/10 px-2">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand to-violet text-white grid place-items-center font-bold text-[12px] flex-none">
+          <div className="w-8 h-8 rounded-lg bg-brand text-white grid place-items-center font-bold text-[12px] flex-none">
             {(user?.name || 'U')[0]}
           </div>
           <div className="min-w-0">

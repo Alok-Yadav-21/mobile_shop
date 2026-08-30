@@ -13,7 +13,7 @@ export function CTASection(){
     <section className="container-x pb-20 pt-4">
       <div className="rounded-3xl bg-ink-900 text-white p-10 sm:p-14 relative overflow-hidden">
         <Meteors number={16}/>
-        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-violet to-transparent" aria-hidden/>
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand to-transparent" aria-hidden/>
         <div className="relative text-center max-w-lg mx-auto mb-10">
           <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight">Ready when your tech isn't.</h2>
           <p className="text-slate-300 mt-3">Whatever the device, whatever the need — Virktech has a path for it.</p>
