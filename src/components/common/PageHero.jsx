@@ -1,5 +1,6 @@
 import { motion, useReducedMotion } from 'framer-motion'
 import { Spotlight } from '@/components/ui-fx/Spotlight.jsx'
+import { AuroraBackground } from '@/components/ui-fx/AuroraBackground.jsx'
 
 // The masthead on every public page. Props are unchanged, so all twelve pages pick up the
 // spotlight and the entrance without edits — the same reason this was worth changing here
@@ -17,6 +18,7 @@ export function PageHero({ kicker, title, desc, children }) {
 
   return (
     <section className="bg-ink-900 text-white relative overflow-hidden">
+      <AuroraBackground className="opacity-70"/>
       <div className="absolute inset-0 bg-grid [background-size:26px_26px] opacity-[.3]" aria-hidden />
       <Spotlight className="-top-60 -left-20 h-[160%] w-[140%]" />
       {/* Warms the right edge so the block does not read as a flat slab behind the text. */}

@@ -127,3 +127,28 @@ body{ @apply bg-white text-ink antialiased; font-family: theme('fontFamily.sans'
     scroll-behavior: auto !important;
   }
 }
+
+/* --- ui-fx keyframes -------------------------------------------------------------------
+   The marquee renders its list twice and shifts by exactly half the track, so the second
+   copy lands where the first began and the loop has no visible seam. The gap correction
+   keeps the spacing even across that join. */
+@keyframes marquee {
+  to { transform: translateX(calc(-50% - 0.5rem)); }
+}
+.animate-marquee {
+  animation: marquee var(--marquee-duration, 40s) linear infinite;
+  animation-direction: var(--marquee-direction, normal);
+}
+
+/* Two long, mismatched cycles: because the periods do not divide evenly, the blobs drift in
+   and out of phase and the movement never reads as a loop. */
+@keyframes aurora-a {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50%      { transform: translate3d(12%, 8%, 0) scale(1.12); }
+}
+@keyframes aurora-b {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.05); }
+  50%      { transform: translate3d(-10%, -6%, 0) scale(1); }
+}
+.animate-aurora-a { animation: aurora-a 26s ease-in-out infinite; }
+.animate-aurora-b { animation: aurora-b 34s ease-in-out infinite; }

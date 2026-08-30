@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowRight, Search, ShieldCheck, Star, Activity } from 'lucide-react'
 import { Spotlight } from '@/components/ui-fx/Spotlight.jsx'
+import { AuroraBackground } from '@/components/ui-fx/AuroraBackground.jsx'
 import heroImg from '@/assets/img/hero.jpg'
 import { BRAND } from '@/constants/brand.js'
 
@@ -14,6 +15,8 @@ const CHIPS = [
 export function HeroSection(){
   return (
     <section className="relative overflow-hidden bg-ink-900 text-white">
+      {/* Aurora sits under the grid so the mesh reads over the colour, not through it. */}
+      <AuroraBackground/>
       <div className="absolute inset-0 bg-grid [background-size:26px_26px] opacity-[.35]"/>
       <Spotlight className="-top-40 left-0 md:left-60 md:-top-20 h-[180%] w-[180%]"/>
       <div className="absolute top-0 right-0 w-[45%] h-full bg-gradient-to-l from-brand/[.08] to-transparent"/>
