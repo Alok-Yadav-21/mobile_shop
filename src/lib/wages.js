@@ -1,8 +1,8 @@
 // Wage calculation. Every figure here is derived from shift records — hours are never stored,
 // so editing a clock-out time is enough to correct the day, week and month totals that follow
 // from it. Pure functions only, so the arithmetic is unit-testable without a backend.
-import { DEFAULT_HOURLY_RATE } from '@/data/users.js'
-import { PAYABLE_SHIFT_STATUSES, FULL_DAY_HOURS, MAX_SHIFT_HOURS } from '@/constants/shifts.js'
+import { DEFAULT_HOURLY_RATE, DEFAULT_DAILY_RATE } from '@/data/users.js'
+import { PAYABLE_SHIFT_STATUSES, MAX_SHIFT_HOURS } from '@/constants/shifts.js'
 import { periodKey, periodStart, periodLabel } from './reporting.js'
 
 // The single gate deciding what counts toward pay. Every aggregate below routes through it,
@@ -22,13 +22,17 @@ export function parseClock(hhmm) {
   return h * 60 + m
 }
 
-// Paid minutes on a shift, honouring how the staff member recorded it:
-//   full_day — a standard day at a branch;
-//   hours    — the figure they entered, clamped to a sane maximum;
-//   times    — clock-out minus clock-in, less the unpaid break.
+// A full day is a unit of its own: it is paid at the day rate and is never expressed as
+// hours, so it contributes zero to every hours figure and one to every day figure.
+export const isFullDay = (shift) => shift?.entryMode === 'full_day'
+
+// Paid minutes on an *hourly* shift:
+//   hours — the figure they entered, clamped to a sane maximum;
+//   times — clock-out minus clock-in, less the unpaid break.
 // A shift ending past midnight runs into the next day rather than counting as negative time.
+// Returns 0 for a full day, which is not measured in hours at all.
 export function shiftMinutes(shift) {
-  if (shift?.entryMode === 'full_day') return FULL_DAY_HOURS * 60
+  if (isFullDay(shift)) return 0
   if (shift?.entryMode === 'hours') {
     const h = Number(shift.hours)
     if (!Number.isFinite(h) || h <= 0) return 0
@@ -50,9 +54,18 @@ export function rateFor(staff) {
   return Number.isFinite(rate) && rate > 0 ? rate : DEFAULT_HOURLY_RATE
 }
 
-export function shiftWage(shift, staff) {
-  return shiftHours(shift) * rateFor(staff)
+export function dailyRateFor(staff) {
+  const rate = Number(staff?.dailyRate)
+  return Number.isFinite(rate) && rate > 0 ? rate : DEFAULT_DAILY_RATE
 }
+
+// The one place that decides which pay basis a shift uses.
+export function shiftWage(shift, staff) {
+  return isFullDay(shift) ? dailyRateFor(staff) : shiftHours(shift) * rateFor(staff)
+}
+
+// Full days counted as days — the counterpart to shiftHours for day-rate work.
+export const shiftFullDays = (shift) => (isFullDay(shift) ? 1 : 0)
 
 // Round money to whole pence at the point it becomes a total, not per shift — rounding each
 // shift first would drift by pounds across a month.
@@ -63,14 +76,21 @@ export const round2 = (n) => Math.round(n * 100) / 100
 export function summariseShifts(shifts, staff, opts = {}) {
   const payable = payableShifts(shifts, opts)
   const hours = payable.reduce((s, sh) => s + shiftHours(sh), 0)
+  const fullDays = payable.reduce((s, sh) => s + shiftFullDays(sh), 0)
+  const wage = payable.reduce((s, sh) => s + shiftWage(sh, staff), 0)
   const days = new Set(payable.map((sh) => sh.date)).size
+  // Averaged over the days actually paid by the hour — including full days here would
+  // divide hourly time by a day count that has no hours in it.
+  const hourlyDays = new Set(payable.filter((sh) => !isFullDay(sh)).map((sh) => sh.date)).size
   return {
     hours: round2(hours),
+    fullDays,
     days,
     shifts: payable.length,
     rate: rateFor(staff),
-    wage: round2(hours * rateFor(staff)),
-    avgHoursPerDay: days ? round2(hours / days) : 0,
+    dailyRate: dailyRateFor(staff),
+    wage: round2(wage),
+    avgHoursPerDay: hourlyDays ? round2(hours / hourlyDays) : 0,
   }
 }
 
@@ -90,8 +110,9 @@ export function wagesByBranch(shifts, staffById, opts = {}) {
   for (const sh of payableShifts(shifts, opts)) {
     const staff = staffById[sh.staffId]
     const key = sh.branchId || 'unassigned'
-    acc[key] ||= { branchId: key, hours: 0, wage: 0, shifts: 0, staffIds: new Set() }
+    acc[key] ||= { branchId: key, hours: 0, fullDays: 0, wage: 0, shifts: 0, staffIds: new Set() }
     acc[key].hours += shiftHours(sh)
+    acc[key].fullDays += shiftFullDays(sh)
     acc[key].wage += shiftWage(sh, staff)
     acc[key].shifts += 1
     acc[key].staffIds.add(sh.staffId)
@@ -99,6 +120,7 @@ export function wagesByBranch(shifts, staffById, opts = {}) {
   return Object.values(acc).map((r) => ({
     branchId: r.branchId,
     hours: round2(r.hours),
+    fullDays: r.fullDays,
     wage: round2(r.wage),
     shifts: r.shifts,
     staffCount: r.staffIds.size,
@@ -125,9 +147,11 @@ export function wagesByPeriod(shifts, staffById, period, opts = {}) {
 export function totalWages(shifts, staffById, opts = {}) {
   const payable = payableShifts(shifts, opts)
   const hours = payable.reduce((s, sh) => s + shiftHours(sh), 0)
+  const fullDays = payable.reduce((s, sh) => s + shiftFullDays(sh), 0)
   const wage = payable.reduce((s, sh) => s + shiftWage(sh, staffById[sh.staffId]), 0)
   return {
     hours: round2(hours),
+    fullDays,
     wage: round2(wage),
     shifts: payable.length,
     days: new Set(payable.map((sh) => sh.date)).size,

@@ -10,8 +10,11 @@
 -- Shifts (timesheets)
 -- ---------------------------------------------------------------------------------------
 
--- Pay rate lives on the profile; wages are always derived from it plus approved hours.
+-- Two pay bases live on the profile. A shift recorded as hours or start/finish times is paid
+-- at hourly_rate; one recorded as a full day is paid a flat daily_rate and is never converted
+-- into an hours figure. Wages are always derived from these plus approved shifts.
 alter table profiles add column if not exists hourly_rate numeric(6,2);
+alter table profiles add column if not exists daily_rate  numeric(7,2);
 
 create type shift_status as enum ('pending', 'approved', 'rejected');
 create type shift_entry_mode as enum ('full_day', 'hours', 'times');
@@ -141,23 +144,39 @@ end $$;
 revoke all on function review_shift(uuid, text, text) from public;
 grant execute on function review_shift(uuid, text, text) to authenticated;
 
--- Paid hours, resolved the same way src/lib/wages.js resolves them, so the database and the
--- app can never disagree about what a shift is worth. Approved rows only, by construction.
-create or replace view payable_shift_hours as
+-- What each approved shift is worth, resolved exactly the way src/lib/wages.js resolves it,
+-- so the database and the app can never disagree. Approved rows only, by construction.
+--
+-- A full day carries no hours at all: it is one day at the day rate. Expressing it as some
+-- assumed number of hours is precisely what this model avoids, so paid_hours is 0 for it and
+-- full_days is 1 instead.
+create or replace view payable_shift_pay as
 select
   s.id,
   s.staff_id,
   s.branch_id,
   s.worked_on,
+  case when s.entry_mode = 'full_day' then 1 else 0 end as full_days,
   case s.entry_mode
-    when 'full_day' then 8.0
+    when 'full_day' then 0
     when 'hours'    then least(s.hours, 16)
     else greatest(0, (extract(epoch from (
            case when s.ends_at >= s.starts_at then s.ends_at - s.starts_at
                 else s.ends_at + interval '24 hours' - s.starts_at end
          )) / 3600.0) - (s.break_minutes / 60.0))
-  end as paid_hours
+  end as paid_hours,
+  case
+    when s.entry_mode = 'full_day' then coalesce(p.daily_rate, 96)
+    else coalesce(p.hourly_rate, 12) * (case s.entry_mode
+      when 'hours' then least(s.hours, 16)
+      else greatest(0, (extract(epoch from (
+             case when s.ends_at >= s.starts_at then s.ends_at - s.starts_at
+                  else s.ends_at + interval '24 hours' - s.starts_at end
+           )) / 3600.0) - (s.break_minutes / 60.0))
+    end)
+  end as pay
 from shifts s
+join profiles p on p.id = s.staff_id
 where s.status = 'approved';
 
 -- ---------------------------------------------------------------------------------------
@@ -194,7 +213,7 @@ create policy "stock_purchases: admin only" on stock_purchases for all
 -- ---------------------------------------------------------------------------------------
 
 create or replace view visible_pay_rates as
-select p.id, p.hourly_rate
+select p.id, p.hourly_rate, p.daily_rate
 from profiles p
 where p.id = auth.uid() or is_admin();
 
