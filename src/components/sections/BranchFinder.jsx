@@ -1,111 +1,147 @@
 import { lazy, Suspense, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Search, MapPin, ArrowRight, LocateFixed } from 'lucide-react'
+import { Search, MapPin, ArrowRight, LocateFixed, Navigation, Loader2 } from 'lucide-react'
 import { BranchAPI } from '@/services/api.js'
 import { useAsync } from '@/hooks/useAsync.js'
+import { branchesByDistance, formatDistance, locatePostcode } from '@/lib/geo.js'
 
-// The globe pulls in three.js and three-globe, which together are far larger than the rest of
-// this page. Loading it lazily keeps that weight off anyone who never scrolls here.
-const Globe3D = lazy(() =>
-  import('@/components/ui-fx/Globe3D.jsx').then((m) => ({ default: m.Globe3D })),
+// Leaflet is the heaviest thing here, so it loads only once this section is reached.
+const BranchMap = lazy(() =>
+  import('@/components/common/BranchMap.jsx').then((m) => ({ default: m.BranchMap })),
 )
 
-// "Find a branch near you", with the globe as the visual and the postcode search as the
-// thing that actually answers the question.
+// "Find your nearest branch", answered rather than illustrated.
 //
-// The globe deliberately does not select a branch. All eight sit within about fifteen miles
-// of each other, so picking between them by spinning a planet would mean zooming from orbit
-// to street level to choose between shops a few minutes apart. It shows where the network is;
-// the search and the list below decide which one you want.
+// Two ways in: share your location, or type a postcode. Either gives a point, and every branch
+// is then ranked by real great-circle distance from it — the coordinates are already on each
+// branch record, so this needs no lookup service and works offline.
 export function BranchFinder() {
   const { data: branches = [] } = useAsync(() => BranchAPI.list(), [])
   const [postcode, setPostcode] = useState('')
-  const [searched, setSearched] = useState(false)
+  const [origin, setOrigin] = useState(null)      // { lat, lng, label }
+  const [locating, setLocating] = useState(false)
+  const [error, setError] = useState(null)
+  const [selectedId, setSelectedId] = useState(null)
 
-  const points = useMemo(
-    () => branches
-      .filter((b) => Number.isFinite(b.lat) && Number.isFinite(b.lng))
-      .map((b) => ({ lat: b.lat, lng: b.lng, color: '#F5333F', name: b.area })),
-    [branches],
-  )
+  const ranked = useMemo(() => branchesByDistance(branches, origin), [branches, origin])
+  const nearest = origin ? ranked.slice(0, 3) : []
 
-  // Outward-code match, the same rule BranchAPI.nearest uses — kept here so the result is
-  // instant rather than a round trip on every keystroke.
-  const matches = useMemo(() => {
-    const out = postcode.toUpperCase().replace(/\s+/g, '').match(/^[A-Z]{1,2}\d/)?.[0]
-    if (!out) return []
-    return branches.filter((b) => b.pc.replace(/\s+/g, '').startsWith(out))
-  }, [postcode, branches])
+  const useMyLocation = () => {
+    if (!navigator.geolocation) { setError('This browser cannot share your location — type a postcode instead.'); return }
+    setLocating(true); setError(null)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setOrigin({ lat: pos.coords.latitude, lng: pos.coords.longitude, label: 'your location' })
+        setPostcode('')
+        setLocating(false)
+      },
+      // Declining the prompt is a normal choice, not a failure — say what to do next.
+      () => { setLocating(false); setError('No location shared. Type a postcode instead.') },
+      { timeout: 8000, maximumAge: 300000 },
+    )
+  }
 
-  const results = searched && postcode.trim() ? matches : []
+  const searchPostcode = (e) => {
+    e.preventDefault()
+    const found = locatePostcode(postcode, branches)
+    if (!found) { setError(`"${postcode}" is not a postcode we recognise — try the outward code, like SE18.`); setOrigin(null); return }
+    setError(null)
+    setOrigin({ lat: found.lat, lng: found.lng, label: found.code })
+  }
 
   return (
     <section className="container-x py-4">
-      <div className="relative overflow-hidden rounded-3xl bg-ink-900 text-white">
-        <div className="grid lg:grid-cols-[1fr_1fr] items-center">
-          <div className="relative z-10 px-8 sm:px-12 py-12">
+      <div className="rounded-3xl bg-graphite-100 overflow-hidden">
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
+          <div className="px-8 sm:px-12 py-12">
             <span className="text-[12px] font-bold uppercase tracking-wide text-brand">Find us</span>
             <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight mt-2">
-              8 branches, one network
+              Your nearest branch
             </h2>
-            <p className="text-slate-300 text-[14.5px] mt-3 max-w-md leading-relaxed">
-              Serving South-East London and North-West Kent. Enter your postcode and we will
-              point you at the closest counter.
+            <p className="text-graphite-600 text-[14.5px] mt-3 max-w-md leading-relaxed">
+              Eight branches across South-East London and North-West Kent. Share your location
+              or enter a postcode and we will sort them by distance.
             </p>
 
-            <form
-              onSubmit={(e) => { e.preventDefault(); setSearched(true) }}
-              className="flex items-center gap-2 bg-white/[.06] border border-white/10 rounded-full p-1.5 mt-7 max-w-sm"
-            >
-              <Search size={17} className="text-slate-400 ml-3" />
+            <div className="flex flex-wrap gap-2 mt-7">
+              <button
+                onClick={useMyLocation}
+                disabled={locating}
+                className="btn btn-brand rounded-full btn-sm disabled:opacity-70"
+              >
+                {locating ? <Loader2 size={15} className="animate-spin" /> : <Navigation size={15} />}
+                {locating ? 'Locating…' : 'Use my location'}
+              </button>
+            </div>
+
+            <form onSubmit={searchPostcode} className="flex items-center gap-2 bg-white border border-graphite-200 rounded-full p-1.5 mt-3 max-w-sm focus-within:border-ink transition-colors">
+              <Search size={17} className="text-graphite-400 ml-3" />
               <input
                 value={postcode}
-                onChange={(e) => { setPostcode(e.target.value); setSearched(false) }}
-                placeholder="Your postcode, e.g. SE18"
+                onChange={(e) => setPostcode(e.target.value)}
+                placeholder="Or a postcode, e.g. SE18"
                 aria-label="Your postcode"
-                className="flex-1 bg-transparent outline-none text-white placeholder:text-slate-500 text-[13.5px] py-2"
+                className="flex-1 bg-transparent outline-none text-ink placeholder:text-graphite-400 text-[13.5px] py-2"
               />
-              <button type="submit" className="btn btn-brand btn-sm rounded-full">Search</button>
+              <button type="submit" className="btn rounded-full btn-sm bg-ink text-white">Search</button>
             </form>
 
-            <div className="mt-6 min-h-[92px]">
-              {searched && postcode.trim() && results.length === 0 && (
-                <p className="text-[13.5px] text-slate-300">
-                  Nothing in <span className="font-semibold text-white">{postcode.toUpperCase()}</span> yet —
-                  every branch serves the whole area, so pick whichever is easiest to reach.
-                </p>
-              )}
+            {error && <p className="text-[12.5px] text-brand mt-3">{error}</p>}
 
-              {results.length > 0 && (
+            <div className="mt-6 min-h-[140px]">
+              {nearest.length > 0 ? (
                 <>
-                  <div className="text-[12px] text-slate-400 mb-2">
-                    {results.length} branch{results.length === 1 ? '' : 'es'} near {postcode.toUpperCase()}
+                  <div className="text-[12px] text-graphite-500 mb-2">
+                    Nearest to <span className="font-semibold text-ink">{origin.label}</span>
                   </div>
                   <div className="space-y-2">
-                    {results.slice(0, 3).map((b) => (
-                      <div key={b.id} className="flex items-start gap-3 bg-white/[.05] border border-white/10 rounded-xl px-4 py-3">
-                        <LocateFixed size={16} className="text-brand flex-none mt-0.5" />
-                        <div className="min-w-0">
-                          <div className="text-[13.5px] font-semibold">{b.area}</div>
-                          <div className="text-slate-400 text-[12px] mono-data">{b.addr} · {b.pc}</div>
-                        </div>
-                      </div>
+                    {nearest.map(({ branch: b, km }, i) => (
+                      <button
+                        key={b.id}
+                        onClick={() => setSelectedId(b.id)}
+                        aria-pressed={selectedId === b.id}
+                        className={`w-full text-left flex items-center gap-3 bg-white rounded-xl px-4 py-3 border transition-colors ${
+                          selectedId === b.id ? 'border-brand' : 'border-graphite-200 hover:border-ink'
+                        }`}
+                      >
+                        <span className={`w-6 h-6 rounded-full grid place-items-center text-[11px] font-bold flex-none ${i === 0 ? 'bg-brand text-white' : 'bg-graphite-100 text-graphite-600'}`}>
+                          {i + 1}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[13.5px] font-semibold truncate">{b.area}</span>
+                          <span className="block text-graphite-400 text-[12px] mono-data truncate">{b.addr} · {b.pc}</span>
+                        </span>
+                        {km != null && (
+                          <span className="text-[12.5px] font-bold mono-data text-brand flex-none">{formatDistance(km)}</span>
+                        )}
+                      </button>
                     ))}
                   </div>
                 </>
+              ) : (
+                <p className="text-[13px] text-graphite-500">
+                  Every branch offers the same repairs, warranty and account — the nearest is
+                  simply the most convenient.
+                </p>
               )}
             </div>
 
-            <Link to="/branches" className="inline-flex items-center gap-1.5 text-[13.5px] font-semibold text-white mt-6 hover:text-brand transition-colors">
-              <MapPin size={15} /> See all branches on the map <ArrowRight size={15} />
+            <Link to="/branches" className="inline-flex items-center gap-1.5 text-[13.5px] font-semibold text-ink mt-6 hover:text-brand transition-colors">
+              <MapPin size={15} /> See all 8 branches <ArrowRight size={15} />
             </Link>
           </div>
 
-          {/* Decorative: the branch names and addresses are all present as text on the left
-              and on /branches, so nothing here is only available inside the canvas. */}
-          <div className="relative h-[320px] lg:h-[440px]" aria-hidden="true">
-            <Suspense fallback={null}>
-              <Globe3D points={points} className="absolute inset-0" />
+          {/* The map is the picture. It is a real, pannable map of the area the branches
+              actually cover, rather than a globe of a planet they occupy one dot of. */}
+          <div className="relative min-h-[340px] lg:min-h-[480px]">
+            <Suspense fallback={<div className="absolute inset-0 bg-graphite-200 animate-pulse" />}>
+              <BranchMap
+                branches={branches}
+                selectedId={selectedId}
+                onSelect={(b) => setSelectedId(b.id)}
+                height="100%"
+                className="absolute inset-0 rounded-none border-0"
+              />
             </Suspense>
           </div>
         </div>
