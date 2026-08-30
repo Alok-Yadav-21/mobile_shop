@@ -9,10 +9,10 @@ import { useAsync } from '@/hooks/useAsync.js'
 import { ShiftAPI, UserAPI, BranchAPI } from '@/services/api.js'
 import { can } from '@/lib/permissions.js'
 import { logAction } from '@/services/auditService.js'
-import { shiftHours, rateFor, round2 } from '@/lib/wages.js'
+import { shiftHours, shiftWage, isFullDay, rateFor, dailyRateFor, round2 } from '@/lib/wages.js'
 import {
   SHIFT_STATUSES, SHIFT_STATUS_LABELS, ENTRY_MODES, ENTRY_MODE_LABELS,
-  FULL_DAY_HOURS, MIN_SHIFT_HOURS, MAX_SHIFT_HOURS,
+  MIN_SHIFT_HOURS, MAX_SHIFT_HOURS,
 } from '@/constants/shifts.js'
 import { DashboardCard } from '@/components/common/DashboardCard.jsx'
 import { EmptyState } from '@/components/common/EmptyState.jsx'
@@ -77,7 +77,7 @@ export default function ShiftApprovals() {
   }, [shifts, statusFilter, branchFilter, q, staffById])
 
   const pendingAll = shifts.filter((s) => s.status === 'pending')
-  const pendingValue = round2(pendingAll.reduce((sum, s) => sum + shiftHours(s) * rateFor(staffById[s.staffId]), 0))
+  const pendingValue = round2(pendingAll.reduce((sum, s) => sum + shiftWage(s, staffById[s.staffId]), 0))
   const pendingHours = round2(pendingAll.reduce((sum, s) => sum + shiftHours(s), 0))
 
   const decide = async (shift, decision, note) => {
@@ -165,12 +165,12 @@ export default function ShiftApprovals() {
           : (
             <Table>
               <thead><tr>
-                <Th>Staff</Th><Th>Date worked</Th><Th>Branch</Th><Th>Recorded as</Th><Th>Hours</Th><Th>Rate</Th><Th>Pay</Th><Th>Submitted</Th><Th>Status</Th><Th></Th>
+                <Th>Staff</Th><Th>Date worked</Th><Th>Branch</Th><Th>Recorded as</Th><Th>Time</Th><Th>Rate</Th><Th>Pay</Th><Th>Submitted</Th><Th>Status</Th><Th></Th>
               </tr></thead>
               <tbody>
                 {rows.map((s) => {
                   const staff = staffById[s.staffId]
-                  const h = shiftHours(s)
+                  const fullDay = isFullDay(s)
                   return (
                     <tr key={s.id} className="hover:bg-graphite-50">
                       <Td>
@@ -180,13 +180,16 @@ export default function ShiftApprovals() {
                       <Td className="mono-data">{fmtDate(s.at)}</Td>
                       <Td className="text-graphite-500">{branchName(s.branchId)}</Td>
                       <Td className="text-[12.5px]">
-                        {s.entryMode === 'full_day' ? `Full day (${FULL_DAY_HOURS}h)`
+                        {fullDay ? 'Full day'
                           : s.entryMode === 'hours' ? `${s.hours}h entered`
                           : `${s.start}–${s.end}${s.breakMins ? ` · ${s.breakMins}m break` : ''}`}
                       </Td>
-                      <Td className="mono-data font-bold">{hoursFmt(h)}</Td>
-                      <Td className="mono-data text-graphite-500">{moneyExact(rateFor(staff))}</Td>
-                      <Td className="mono-data font-bold">{moneyExact(h * rateFor(staff))}</Td>
+                      <Td className="mono-data font-bold">{fullDay ? '1 day' : hoursFmt(shiftHours(s))}</Td>
+                      {/* Which rate applies follows from how the shift was recorded. */}
+                      <Td className="mono-data text-graphite-500">
+                        {fullDay ? `${moneyExact(dailyRateFor(staff))}/day` : `${moneyExact(rateFor(staff))}/h`}
+                      </Td>
+                      <Td className="mono-data font-bold">{moneyExact(shiftWage(s, staff))}</Td>
                       <Td className="text-[12px] text-graphite-400">{timeAgo(s.submittedAt)}</Td>
                       <Td>
                         <ShiftStatusBadge status={s.status} />
@@ -238,7 +241,7 @@ export default function ShiftApprovals() {
 
               {entryMode === 'full_day' && (
                 <p className="text-[12.5px] text-graphite-500 bg-graphite-50 rounded-xl px-3.5 py-2.5">
-                  A full day counts as <span className="font-bold mono-data">{FULL_DAY_HOURS} hours</span>.
+                  Paid at the day rate of <span className="font-bold mono-data">{moneyExact(dailyRateFor(staffById[editing.staffId]))}</span> — no hours figure involved.
                 </p>
               )}
 

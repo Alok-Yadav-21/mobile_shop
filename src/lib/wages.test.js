@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import {
-  parseClock, shiftMinutes, shiftHours, rateFor, shiftWage, payableShifts, isPayable,
+  parseClock, shiftMinutes, shiftHours, rateFor, dailyRateFor, shiftWage, isFullDay,
+  shiftFullDays, payableShifts, isPayable,
   summariseShifts, wagesByStaff, wagesByBranch, totalWages, wagesByPeriod,
 } from './wages.js'
 
-const staff = { id: 'u2', name: 'Sam', branch: 'wol', hourlyRate: 16 }
+const staff = { id: 'u2', name: 'Sam', branch: 'wol', hourlyRate: 16, dailyRate: 130 }
 // Fixtures are approved by default: an unapproved shift is worth nothing, which the
 // "approval gate" block below covers explicitly.
 const shift = (over = {}) => ({
@@ -43,6 +44,12 @@ describe('rateFor', () => {
   it('uses the staff member rate when set', () => expect(rateFor(staff)).toBe(16))
   it('falls back to the default for records with no rate', () => expect(rateFor({ id: 'u9' })).toBe(12))
   it('ignores a zero or negative rate', () => expect(rateFor({ hourlyRate: 0 })).toBe(12))
+})
+
+describe('dailyRateFor', () => {
+  it('uses the staff member day rate when set', () => expect(dailyRateFor(staff)).toBe(130))
+  it('falls back to the default when absent', () => expect(dailyRateFor({ id: 'u9' })).toBe(96))
+  it('ignores a zero day rate', () => expect(dailyRateFor({ dailyRate: 0 })).toBe(96))
 })
 
 describe('shiftWage', () => {
@@ -155,12 +162,27 @@ describe('approval gate', () => {
 })
 
 describe('entry modes', () => {
-  it('counts a full day as the standard 8 hours regardless of clock fields', () => {
-    expect(shiftHours(shift({ entryMode: 'full_day', start: '09:00', end: '10:00' }))).toBe(8)
+  it('pays a full day at the day rate, not by the hour', () => {
+    expect(shiftWage(shift({ entryMode: 'full_day' }), staff)).toBe(130)
+  })
+
+  it('never converts a full day into an hours figure', () => {
+    // The whole point of the mode: a full day is a day, so it contributes no hours at all,
+    // and stray clock fields left over from another mode must not resurrect an hour count.
+    expect(shiftHours(shift({ entryMode: 'full_day', start: '09:00', end: '17:30' }))).toBe(0)
+    expect(isFullDay(shift({ entryMode: 'full_day' }))).toBe(true)
+    expect(shiftFullDays(shift({ entryMode: 'full_day' }))).toBe(1)
+  })
+
+  it('pays a full day the same amount however long the day was', () => {
+    const short = shift({ entryMode: 'full_day', start: '09:00', end: '11:00' })
+    const long = shift({ entryMode: 'full_day', start: '07:00', end: '21:00' })
+    expect(shiftWage(short, staff)).toBe(shiftWage(long, staff))
   })
 
   it('uses the hours the staff member entered', () => {
     expect(shiftHours(shift({ entryMode: 'hours', hours: 10 }))).toBe(10)
+    expect(shiftFullDays(shift({ entryMode: 'hours', hours: 10 }))).toBe(0)
   })
 
   it('clamps an implausible hours entry rather than paying it out', () => {
@@ -172,7 +194,41 @@ describe('entry modes', () => {
     expect(shiftHours(shift({ entryMode: 'hours', hours: null }))).toBe(0)
   })
 
-  it('pays a 10-hour entry at the staff member rate', () => {
+  it('pays a 10-hour entry at the hourly rate', () => {
     expect(shiftWage(shift({ entryMode: 'hours', hours: 10 }), staff)).toBe(160)
+  })
+})
+
+describe('mixing day-rate and hourly shifts', () => {
+  const fullDay = shift({ id: 'fd', date: '2026-03-05', at: new Date('2026-03-05T09:00:00').getTime(), entryMode: 'full_day' })
+
+  it('adds a flat day rate to hourly pay without inventing hours', () => {
+    const out = summariseShifts([shift(), fullDay], staff)
+    expect(out.hours).toBe(8)        // only the hourly shift contributes hours
+    expect(out.fullDays).toBe(1)
+    expect(out.days).toBe(2)         // both are days worked
+    expect(out.wage).toBe(258)       // 8h * 16 + 130
+  })
+
+  it('keeps the hourly average free of day-rate shifts', () => {
+    // Averaging 8 hours over 2 days would report 4h/day and misrepresent the hourly work.
+    expect(summariseShifts([shift(), fullDay], staff).avgHoursPerDay).toBe(8)
+  })
+
+  it('reports full days per branch alongside hours', () => {
+    const [row] = wagesByBranch([shift(), fullDay], { u2: staff })
+    expect(row.fullDays).toBe(1)
+    expect(row.hours).toBe(8)
+    expect(row.wage).toBe(258)
+  })
+
+  it('carries full days through the payroll run', () => {
+    const out = totalWages([shift(), fullDay], { u2: staff })
+    expect(out.fullDays).toBe(1)
+    expect(out.wage).toBe(258)
+  })
+
+  it('still pays nothing for an unapproved full day', () => {
+    expect(totalWages([shift({ entryMode: 'full_day', status: 'pending' })], { u2: staff }).wage).toBe(0)
   })
 })

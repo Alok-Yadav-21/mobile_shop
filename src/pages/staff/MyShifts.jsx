@@ -7,9 +7,9 @@ import { useAuth } from '@/hooks/useAuth.js'
 import { useAsync } from '@/hooks/useAsync.js'
 import { ShiftAPI, BranchAPI } from '@/services/api.js'
 import { can } from '@/lib/permissions.js'
-import { summariseShifts, shiftHours, rateFor } from '@/lib/wages.js'
+import { summariseShifts, shiftHours, shiftWage, isFullDay, rateFor, dailyRateFor } from '@/lib/wages.js'
 import {
-  ENTRY_MODES, ENTRY_MODE_LABELS, FULL_DAY_HOURS, MIN_SHIFT_HOURS, MAX_SHIFT_HOURS,
+  ENTRY_MODES, ENTRY_MODE_LABELS, MIN_SHIFT_HOURS, MAX_SHIFT_HOURS,
 } from '@/constants/shifts.js'
 import { DashboardCard } from '@/components/common/DashboardCard.jsx'
 import { EmptyState } from '@/components/common/EmptyState.jsx'
@@ -149,10 +149,10 @@ export default function MyShifts() {
 
       {canSeeOwnPay && (
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <DashboardCard icon={PoundSterling} label={`Approved earnings · ${moneyExact(rateFor(me))}/h`} value={moneyExact(approvedTotals.wage)} tone="green" />
-          <DashboardCard icon={Clock} label="Approved hours" value={hoursFmt(approvedTotals.hours)} tone="brand" />
-          <DashboardCard icon={CalendarDays} label="Days worked (approved)" value={approvedTotals.days} tone="violet" />
-          <DashboardCard icon={Hourglass} label={`Awaiting review · ${hoursFmt(pendingTotals.hours)}`} value={pending.length} tone="amber" />
+          <DashboardCard icon={PoundSterling} label={`Approved earnings · ${moneyExact(rateFor(me))}/h · ${moneyExact(dailyRateFor(me))}/day`} value={moneyExact(approvedTotals.wage)} tone="green" />
+          <DashboardCard icon={Clock} label="Approved hourly time" value={hoursFmt(approvedTotals.hours)} tone="brand" />
+          <DashboardCard icon={CalendarDays} label={`Days worked · ${approvedTotals.fullDays} full ${approvedTotals.fullDays === 1 ? 'day' : 'days'}`} value={approvedTotals.days} tone="violet" />
+          <DashboardCard icon={Hourglass} label={`Awaiting review · ${moneyExact(pendingTotals.wage)}`} value={pending.length} tone="amber" />
         </div>
       )}
 
@@ -167,24 +167,26 @@ export default function MyShifts() {
           : (
             <Table>
               <thead><tr>
-                <Th>Date</Th><Th>Branch</Th><Th>Recorded as</Th><Th>Hours</Th><Th>Pay</Th><Th>Status</Th><Th>Reviewer note</Th><Th></Th>
+                <Th>Date</Th><Th>Branch</Th><Th>Recorded as</Th><Th>Time</Th><Th>Pay</Th><Th>Status</Th><Th>Reviewer note</Th><Th></Th>
               </tr></thead>
               <tbody>
                 {mine.map((s) => {
-                  const h = shiftHours(s)
+                  const fullDay = isFullDay(s)
                   return (
                     <tr key={s.id} className="hover:bg-graphite-50">
                       <Td className="mono-data font-semibold">{fmtDate(s.at)}</Td>
                       <Td className="text-graphite-500">{branchName(s.branchId)}</Td>
                       <Td className="text-[12.5px]">
-                        {s.entryMode === 'full_day' ? `Full day (${FULL_DAY_HOURS}h)`
+                        {fullDay ? 'Full day'
                           : s.entryMode === 'hours' ? `${s.hours}h entered`
                           : `${s.start}–${s.end}${s.breakMins ? ` · ${s.breakMins}m break` : ''}`}
                       </Td>
-                      <Td className="mono-data">{hoursFmt(h)}</Td>
+                      {/* A full day is a day, not an hours figure — showing an hour count here
+                          would reintroduce the very conversion this mode exists to avoid. */}
+                      <Td className="mono-data">{fullDay ? '1 day' : hoursFmt(shiftHours(s))}</Td>
                       <Td className="mono-data">
                         {s.status === 'approved'
-                          ? <span className="font-bold">{moneyExact(h * rateFor(me))}</span>
+                          ? <span className="font-bold">{moneyExact(shiftWage(s, me))}</span>
                           : <span className="text-graphite-400">{s.status === 'rejected' ? '—' : 'Pending'}</span>}
                       </Td>
                       <Td><ShiftStatusBadge status={s.status} /></Td>
@@ -248,7 +250,7 @@ export default function MyShifts() {
 
               {entryMode === 'full_day' && (
                 <p className="text-[12.5px] text-graphite-500 bg-graphite-50 rounded-xl px-3.5 py-2.5">
-                  A full day counts as <span className="font-bold mono-data">{FULL_DAY_HOURS} hours</span>.
+                  A full day is paid at your day rate of <span className="font-bold mono-data">{moneyExact(dailyRateFor(me))}</span> — no hours needed.
                 </p>
               )}
 

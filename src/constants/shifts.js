@@ -22,9 +22,11 @@ export const SHIFT_STATUS_TONES = {
 export const PAYABLE_SHIFT_STATUSES = ['approved']
 
 // How a staff member recorded the time they worked.
-//   full_day — "I worked the whole day"; counts as FULL_DAY_HOURS.
-//   hours    — "I worked 10 hours"; the figure is entered directly.
-//   times    — clock-in/clock-out with an unpaid break, the most precise option.
+//   full_day — "I worked the whole day". Paid as one day at the staff member's day rate;
+//              it is deliberately NOT converted into an hours figure, so a full day is
+//              counted and reported as a day, not as some assumed number of hours.
+//   hours    — "I worked 10 hours"; the figure is entered directly, paid hourly.
+//   times    — clock-in/clock-out with an unpaid break, paid hourly. The most precise option.
 export const ENTRY_MODES = ['full_day', 'hours', 'times']
 
 export const ENTRY_MODE_LABELS = {
@@ -32,9 +34,6 @@ export const ENTRY_MODE_LABELS = {
   hours: 'Total hours',
   times: 'Start & finish times',
 }
-
-// A standard full day at a branch, less the usual unpaid break.
-export const FULL_DAY_HOURS = 8
 
 // Guard rails on a submission: nobody works a 24-hour shift, and a zero-hour one is a mistake.
 export const MIN_SHIFT_HOURS = 0.5

@@ -5,7 +5,7 @@ import { useAsync } from '@/hooks/useAsync.js'
 import { ShiftAPI, UserAPI, BranchAPI } from '@/services/api.js'
 import { can } from '@/lib/permissions.js'
 import { rangeForLastPeriods } from '@/lib/reporting.js'
-import { wagesByStaff, wagesByBranch, wagesByPeriod, totalWages, summariseShifts, shiftHours, rateFor } from '@/lib/wages.js'
+import { wagesByStaff, wagesByBranch, wagesByPeriod, totalWages, summariseShifts, shiftHours, shiftWage, isFullDay, rateFor, dailyRateFor } from '@/lib/wages.js'
 import { PERIODS, PERIOD_LABELS } from '@/constants/finance.js'
 import { DashboardCard } from '@/components/common/DashboardCard.jsx'
 import { EmptyState } from '@/components/common/EmptyState.jsx'
@@ -148,7 +148,7 @@ export default function Wages() {
         {loading ? <div className="text-graphite-400 text-[13px] py-6">Loading rota…</div> : staffRows.length === 0 ? <EmptyState title="No staff match those filters" /> : (
           <Table>
             <thead><tr>
-              <Th>Staff</Th><Th>Branch</Th><Th>Rate</Th><Th>Days</Th><Th>Shifts</Th><Th>Hours</Th><Th>Avg / day</Th><Th>Wages</Th><Th></Th>
+              <Th>Staff</Th><Th>Rates</Th><Th>Days</Th><Th>Full days</Th><Th>Hourly time</Th><Th>Avg / day</Th><Th>Wages</Th><Th></Th>
             </tr></thead>
             <tbody>
               {staffRows.map((r) => (
@@ -157,10 +157,9 @@ export default function Wages() {
                     <div className="font-semibold">{r.staff.name}</div>
                     <div className="text-[11.5px] text-graphite-400">{r.staff.jobTitle || 'Staff'}</div>
                   </Td>
-                  <Td className="text-graphite-500">{branches.find((b) => b.id === r.staff.branch)?.area ?? '—'}</Td>
-                  <Td className="mono-data">{moneyExact(r.rate)}/h</Td>
+                  <Td className="mono-data text-[12px]">{moneyExact(r.rate)}/h<div className="text-graphite-400">{moneyExact(r.dailyRate)}/day</div></Td>
                   <Td className="mono-data">{r.days}</Td>
-                  <Td className="mono-data">{r.shifts}</Td>
+                  <Td className="mono-data">{r.fullDays}</Td>
                   <Td className="mono-data">{hoursFmt(r.hours)}</Td>
                   <Td className="mono-data text-graphite-500">{hoursFmt(r.avgHoursPerDay)}</Td>
                   <Td className="mono-data font-bold">{moneyExact(r.wage)}</Td>
@@ -172,9 +171,9 @@ export default function Wages() {
                 </tr>
               ))}
               <tr className="bg-graphite-50 font-bold">
-                <Td>Total</Td><Td /><Td />
+                <Td>Total</Td><Td />
                 <Td className="mono-data">{totals.days}</Td>
-                <Td className="mono-data">{totals.shifts}</Td>
+                <Td className="mono-data">{totals.fullDays}</Td>
                 <Td className="mono-data">{hoursFmt(totals.hours)}</Td>
                 <Td />
                 <Td className="mono-data">{moneyExact(totals.wage)}</Td>
@@ -190,12 +189,13 @@ export default function Wages() {
           <h2 className="font-bold text-[15px] mb-4">{PERIOD_LABELS[period]} wage run</h2>
           {periodRows.length === 0 ? <EmptyState title="No shifts in this window" /> : (
             <Table>
-              <thead><tr><Th>{period === 'month' ? 'Month' : period === 'week' ? 'Week' : 'Day'}</Th><Th>Staff</Th><Th>Hours</Th><Th>Wages</Th></tr></thead>
+              <thead><tr><Th>{period === 'month' ? 'Month' : period === 'week' ? 'Week' : 'Day'}</Th><Th>Staff</Th><Th>Full days</Th><Th>Hourly time</Th><Th>Wages</Th></tr></thead>
               <tbody>
                 {periodRows.map((r) => (
                   <tr key={r.key} className="hover:bg-graphite-50">
                     <Td className="font-semibold">{r.label}</Td>
                     <Td className="mono-data">{r.staffCount}</Td>
+                    <Td className="mono-data">{r.fullDays}</Td>
                     <Td className="mono-data">{hoursFmt(r.hours)}</Td>
                     <Td className="mono-data font-bold">{moneyExact(r.wage)}</Td>
                   </tr>
@@ -210,13 +210,13 @@ export default function Wages() {
           <p className="text-[12px] text-graphite-400 mb-4">Costed to the branch the shift was worked at.</p>
           {branchRows.length === 0 ? <EmptyState title="No shifts in this window" /> : (
             <Table>
-              <thead><tr><Th>Branch</Th><Th>Staff</Th><Th>Shifts</Th><Th>Hours</Th><Th>Wages</Th></tr></thead>
+              <thead><tr><Th>Branch</Th><Th>Staff</Th><Th>Full days</Th><Th>Hourly time</Th><Th>Wages</Th></tr></thead>
               <tbody>
                 {branchRows.map((r) => (
                   <tr key={r.branchId} className="hover:bg-graphite-50">
                     <Td className="font-semibold">{branches.find((b) => b.id === r.branchId)?.area ?? r.branchId}</Td>
                     <Td className="mono-data">{r.staffCount}</Td>
-                    <Td className="mono-data">{r.shifts}</Td>
+                    <Td className="mono-data">{r.fullDays}</Td>
                     <Td className="mono-data">{hoursFmt(r.hours)}</Td>
                     <Td className="mono-data font-bold">{moneyExact(r.wage)}</Td>
                   </tr>
@@ -239,7 +239,7 @@ export default function Wages() {
               const sum = summariseShifts(mine, viewing)
               return (
                 <div className="grid grid-cols-4 gap-3 mb-4">
-                  {[['Rate', `${moneyExact(sum.rate)}/h`], ['Days', sum.days], ['Hours', hoursFmt(sum.hours)], ['Wages', moneyExact(sum.wage)]].map(([k, v]) => (
+                  {[['Rates', `${moneyExact(sum.rate)}/h · ${moneyExact(sum.dailyRate)}/day`], ['Days', sum.days], ['Hourly time', hoursFmt(sum.hours)], ['Wages', moneyExact(sum.wage)]].map(([k, v]) => (
                     <div key={k} className="bg-graphite-50 rounded-xl px-3 py-2.5">
                       <div className="text-[10.5px] uppercase tracking-wide text-graphite-400 font-bold">{k}</div>
                       <div className="font-extrabold mono-data text-[15px]">{v}</div>
@@ -253,17 +253,18 @@ export default function Wages() {
               <div>
                 <h3 className="font-bold text-[13px] mb-2">{PERIOD_LABELS[period]} totals</h3>
                 <Table>
-                  <thead><tr><Th>Period</Th><Th>Days</Th><Th>Hours</Th><Th>Wages</Th></tr></thead>
+                  <thead><tr><Th>Period</Th><Th>Days</Th><Th>Full days</Th><Th>Hourly time</Th><Th>Wages</Th></tr></thead>
                   <tbody>
                     {viewingRows.map((r) => (
                       <tr key={r.key}>
                         <Td className="font-semibold">{r.label}</Td>
                         <Td className="mono-data">{r.days}</Td>
+                        <Td className="mono-data">{r.fullDays}</Td>
                         <Td className="mono-data">{hoursFmt(r.hours)}</Td>
                         <Td className="mono-data font-bold">{moneyExact(r.wage)}</Td>
                       </tr>
                     ))}
-                    {viewingRows.length === 0 && <tr><Td colSpan={4} className="text-center text-graphite-400 py-6">No shifts in this window.</Td></tr>}
+                    {viewingRows.length === 0 && <tr><Td colSpan={5} className="text-center text-graphite-400 py-6">No shifts in this window.</Td></tr>}
                   </tbody>
                 </Table>
               </div>
@@ -271,17 +272,19 @@ export default function Wages() {
               <div>
                 <h3 className="font-bold text-[13px] mb-2">Individual shifts</h3>
                 <Table>
-                  <thead><tr><Th>Date</Th><Th>Branch</Th><Th>Start</Th><Th>End</Th><Th>Break</Th><Th>Hours</Th><Th>Pay</Th></tr></thead>
+                  <thead><tr><Th>Date</Th><Th>Branch</Th><Th>Recorded as</Th><Th>Time</Th><Th>Pay</Th></tr></thead>
                   <tbody>
                     {viewingShifts.slice(0, 60).map((s) => (
                       <tr key={s.id}>
                         <Td className="mono-data">{fmtDate(s.at)}</Td>
                         <Td className="text-graphite-500">{branches.find((b) => b.id === s.branchId)?.area.split('—')[0].trim() ?? s.branchId}</Td>
-                        <Td className="mono-data">{s.start}</Td>
-                        <Td className="mono-data">{s.end}</Td>
-                        <Td className="mono-data text-graphite-500">{s.breakMins}m</Td>
-                        <Td className="mono-data">{hoursFmt(shiftHours(s))}</Td>
-                        <Td className="mono-data font-bold">{moneyExact(shiftHours(s) * rateFor(viewing))}</Td>
+                        <Td className="text-[12.5px]">
+                          {isFullDay(s) ? 'Full day'
+                            : s.entryMode === 'hours' ? `${s.hours}h entered`
+                            : `${s.start}–${s.end}${s.breakMins ? ` · ${s.breakMins}m break` : ''}`}
+                        </Td>
+                        <Td className="mono-data">{isFullDay(s) ? '1 day' : hoursFmt(shiftHours(s))}</Td>
+                        <Td className="mono-data font-bold">{moneyExact(shiftWage(s, viewing))}</Td>
                       </tr>
                     ))}
                   </tbody>
