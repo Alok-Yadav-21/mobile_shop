@@ -266,6 +266,21 @@ export const ProductAPI = {
     if (error) throw error
     return this.branchStock(id)
   },
+  async stockForBranch(branchId) {
+    assertConnected()
+    const { data, error } = await supabase.rpc('stock_for_branch', { branch: branchId })
+    if (error) throw error
+    return data
+  },
+  // Branch row and network total move in one transaction, so they cannot drift apart.
+  async adjustBranchStock(id, branchId, delta, reason) {
+    assertConnected()
+    const { data, error } = await supabase.rpc('adjust_branch_stock', {
+      product: id, branch: branchId, delta, reason: reason ?? null,
+    })
+    if (error) throw error
+    return data
+  },
   async transferStock(id, fromBranchId, toBranchId, quantity) {
     assertConnected()
     const { data: from, error } = await supabase.from('inventory').select('quantity').eq('product_id', id).eq('branch_id', fromBranchId).single()

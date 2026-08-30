@@ -13,7 +13,7 @@ import { canTransition, requiresReason } from '@/constants/status.js'
 import { isSuperAdmin } from '@/lib/permissions.js'
 import { getSession } from '@/services/session.js'
 import {
-  requireAuth, requireCan, requireSelfOrAdmin, isAdmin, isStaff, isCustomer,
+  requireAuth, requireCan, requireSelfOrAdmin, requireBranchScope, isAdmin, isStaff, isCustomer,
   scopeRepairs, scopeOrders, scopeShifts, scopeTradeIns, scopeUsers, scopeOwned,
 } from '@/lib/authz.js'
 import { customerCanCancelRepair } from '@/lib/permissions.js'
@@ -293,6 +293,56 @@ export const ProductAPI = {
   },
   // --- per-branch stock allocation (informational breakdown on top of the total in p.stock) ---
   async branchStock(id) { await delay(80); return loadJSON(KEYS.branchStock, seedBranchStock()).filter((r) => r.productId === id) },
+
+  // Every product's stock level at one branch, which is what a staff member on the shop floor
+  // actually needs — the network total tells them nothing about what is on their own shelf.
+  async stockForBranch(branchId) {
+    await delay(80)
+    const rows = loadJSON(KEYS.branchStock, seedBranchStock())
+    const products = loadJSON(KEYS.products, seedProducts()).filter((p) => !p.archived)
+    return products.map((p) => ({
+      ...p,
+      // `branchQuantity` is what this branch holds; `stock` stays the network total so callers
+      // can still show both without a second lookup.
+      branchQuantity: rows.find((r) => r.productId === p.id && r.branchId === branchId)?.quantity ?? 0,
+    }))
+  },
+
+  // Consuming or writing off stock AT a branch. This is the operation that was missing: stock
+  // could only be moved on the network total, so using a part on a repair silently drew down a
+  // figure that included units sitting in other shops. Both the branch row and the total move
+  // together here, so they cannot drift apart.
+  async adjustBranchStock(id, branchId, delta, reason) {
+    await delay()
+    const actor = currentActor()
+    requireCan(actor, 'manageInventory')
+    // A staff member may only move stock at their own branch; admins are unscoped.
+    requireBranchScope(actor, branchId)
+
+    const rows = loadJSON(KEYS.branchStock, seedBranchStock())
+    const row = rows.find((r) => r.productId === id && r.branchId === branchId)
+    const held = row?.quantity ?? 0
+    if (delta < 0 && held + delta < 0) {
+      throw new Error(`This branch only has ${held} in stock — check another branch or request a transfer.`)
+    }
+
+    const products = loadJSON(KEYS.products, seedProducts())
+    const p = products.find((x) => x.id === id)
+    if (!p) throw new Error('Product not found.')
+
+    if (row) row.quantity = held + delta
+    else rows.push({ productId: id, branchId, quantity: delta })
+    p.stock = Math.max(0, (p.stock || 0) + delta)
+
+    saveJSON(KEYS.branchStock, rows)
+    saveJSON(KEYS.products, products)
+
+    const moves = loadJSON(KEYS.inventoryMoves, [])
+    moves.unshift({ id: 'im' + Date.now(), productId: id, branchId, delta, reason, actorId: actor?.id ?? null, at: Date.now() })
+    saveJSON(KEYS.inventoryMoves, moves)
+
+    return { ...p, branchQuantity: (row ? row.quantity : delta) }
+  },
   async setBranchStock(id, branchId, quantity) {
     await delay()
     requireCan(currentActor(), 'manageInventory')
