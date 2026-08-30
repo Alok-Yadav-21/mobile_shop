@@ -1,6 +1,12 @@
+import { lazy, Suspense } from 'react'
 import { Link } from 'react-router-dom'
 import { BRANCHES } from '@/data/branches.js'
 import { MapPin, ArrowRight } from 'lucide-react'
+
+// WebGL globe, loaded lazily so it never blocks first paint of the homepage.
+const BranchGlobe = lazy(() =>
+  import('@/components/common/BranchGlobe.jsx').then((m) => ({ default: m.BranchGlobe })),
+)
 
 export function BranchNetwork(){
   return (
@@ -10,7 +16,15 @@ export function BranchNetwork(){
           <span className="kicker text-slate-500">Service coverage</span>
           <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight mt-3">8 branches. One connected network.</h2>
           <p className="text-slate-300 mt-3 max-w-md leading-relaxed">Serving South-East London and North-West Kent. Same account, same warranty, same tracked service — wherever you visit.</p>
-          <Link to="/contact" className="btn btn-outline mt-7 inline-flex">Find your nearest branch <ArrowRight size={16}/></Link>
+          <Link to="/branches" className="btn btn-outline mt-7 inline-flex">Find your nearest branch <ArrowRight size={16}/></Link>
+
+          {/* Brand visual only — the branch list beside it carries the same information as
+              text, and choosing a branch happens on the map at /branches. */}
+          <Suspense fallback={null}>
+            <div className="hidden lg:flex justify-center mt-10">
+              <BranchGlobe size={340}/>
+            </div>
+          </Suspense>
         </div>
         <div className="grid sm:grid-cols-2 gap-2.5">
           {BRANCHES.map(b=>(
