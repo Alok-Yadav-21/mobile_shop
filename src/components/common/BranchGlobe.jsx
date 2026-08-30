@@ -48,9 +48,9 @@ export function BranchGlobe({ size = 480, className = '' }) {
         scale: 1,
         mapSamples: 16000,
         mapBrightness: 6,
-        baseColor: [0.28, 0.32, 0.4],
-        markerColor: [0.35, 0.55, 1],
-        glowColor: [0.18, 0.24, 0.36],
+        baseColor: [0.22, 0.27, 0.38],
+        markerColor: [0.08, 0.72, 0.65],
+        glowColor: [0.16, 0.19, 0.32],
         offset: [0, 0],
         markerElevation: 0.02,
         markers: BRANCHES

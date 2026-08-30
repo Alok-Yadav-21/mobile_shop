@@ -18,39 +18,51 @@ export default {
   			mono: ['ui-monospace', '"Cascadia Code"', '"JetBrains Mono"', '"SFMono-Regular"', 'Menlo', 'Consolas', 'monospace']
   		},
   		colors: {
+  			// Indigo primary with a teal signal on deep slate. Token NAMES are unchanged from the
+  			// previous blue palette on purpose — every component already references brand/signal/
+  			// ink/graphite, so re-pointing the values re-skins the whole platform without touching
+  			// a single component file.
   			brand: {
-  				'50': '#EAF1FE',
-  				'100': '#D3E1FC',
-  				'600': '#2F6BED',
-  				'700': '#1E55D6',
-  				DEFAULT: '#2F6BED'
+  				'50': '#EEF2FF',
+  				'100': '#E0E7FF',
+  				'400': '#818CF8',
+  				'600': '#4F46E5',
+  				'700': '#4338CA',
+  				DEFAULT: '#4F46E5'
   			},
+  			// Secondary in the gradient pair. Kept close to the primary so the sweep reads as one
+  			// colour deepening rather than two colours fighting.
   			violet: {
-  				'50': '#F1EBFE',
-  				'600': '#7C3AED',
-  				DEFAULT: '#7C3AED'
+  				'50': '#F5F3FF',
+  				'600': '#7C5CFF',
+  				DEFAULT: '#7C5CFF'
   			},
   			electric: {
-  				'500': '#0EA5E9',
-  				DEFAULT: '#0EA5E9'
+  				'500': '#06B6D4',
+  				DEFAULT: '#06B6D4'
   			},
+  			// The accent that means "live" — status dots, success, active branches.
   			signal: {
-  				'500': '#22D3B8',
-  				DEFAULT: '#22D3B8'
+  				'50': '#ECFDF7',
+  				'500': '#14B8A6',
+  				DEFAULT: '#14B8A6'
   			},
+  			// Deep slate rather than near-black: it holds the indigo without turning muddy, and
+  			// keeps large dark panels feeling like a surface instead of a hole.
   			ink: {
-  				'800': '#141726',
-  				'900': '#0B0D16',
-  				DEFAULT: '#12141F'
+  				'800': '#152036',
+  				'900': '#0B1220',
+  				DEFAULT: '#0F172A'
   			},
   			graphite: {
-  				'50': '#F6F7F9',
-  				'100': '#EEF0F3',
-  				'200': '#E2E5EA',
-  				'400': '#8A90A0',
-  				'600': '#565C6D',
-  				'800': '#20232E',
-  				DEFAULT: '#565C6D'
+  				'50': '#F8FAFC',
+  				'100': '#F1F5F9',
+  				'200': '#E2E8F0',
+  				'400': '#94A3B8',
+  				'600': '#475569',
+  				'700': '#334155',
+  				'800': '#1E293B',
+  				DEFAULT: '#475569'
   			},
   			paper: '#FBFBFA',
   			border: 'hsl(var(--border))',

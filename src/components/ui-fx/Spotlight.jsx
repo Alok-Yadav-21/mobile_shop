@@ -6,7 +6,7 @@ import { motion, useReducedMotion } from 'framer-motion'
 //
 // Rendered as a blurred SVG ellipse rather than a CSS gradient because the blur survives
 // scaling, which keeps the edge soft on a wide monitor instead of banding.
-export function Spotlight({ className = '', fill = '#2F6BED' }) {
+export function Spotlight({ className = '', fill = '#4F46E5' }) {
   const reduce = useReducedMotion()
 
   return (

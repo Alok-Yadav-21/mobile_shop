@@ -16,8 +16,8 @@ function pinIcon(selected) {
     html: `<span style="
       display:block;width:${selected ? 20 : 15}px;height:${selected ? 20 : 15}px;
       border-radius:9999px;
-      background:${selected ? '#2F6BED' : '#ffffff'};
-      border:3px solid ${selected ? '#ffffff' : '#2F6BED'};
+      background:${selected ? '#4F46E5' : '#ffffff'};
+      border:3px solid ${selected ? '#ffffff' : '#4F46E5'};
       box-shadow:0 2px 10px rgba(15,23,42,.35);
       transition:all .15s ease;
     "></span>`,

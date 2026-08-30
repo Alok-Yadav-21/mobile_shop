@@ -6,10 +6,10 @@ import { AnimatedNumber } from '@/components/ui-fx/AnimatedNumber.jsx'
 // (icon / label / value / tone) so every existing call site keeps working; what is new is the
 // pointer glow, the count-up and a staggered entrance.
 const TONES = {
-  brand: { chip: 'bg-brand-50 text-brand', glow: 'rgba(47,107,237,.13)' },
-  green: { chip: 'bg-emerald-50 text-emerald-600', glow: 'rgba(16,185,129,.13)' },
+  brand: { chip: 'bg-brand-50 text-brand', glow: 'rgba(79,70,229,.14)' },
+  green: { chip: 'bg-emerald-50 text-emerald-600', glow: 'rgba(20,184,166,.14)' },
   amber: { chip: 'bg-amber-50 text-amber-600', glow: 'rgba(245,158,11,.14)' },
-  violet: { chip: 'bg-violet-50 text-violet-600', glow: 'rgba(124,58,237,.13)' },
+  violet: { chip: 'bg-violet-50 text-violet-600', glow: 'rgba(124,92,255,.14)' },
 }
 
 export function DashboardCard({ icon: Icon, label, value, tone = 'brand', hint, index = 0 }) {
