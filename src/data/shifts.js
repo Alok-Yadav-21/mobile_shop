@@ -2,7 +2,7 @@
 // One record is one worked shift: who, where, which calendar day, clock-in, clock-out and
 // unpaid break. Hours and pay are always *derived* from these, never stored, so correcting a
 // clock-out time automatically corrects the day/week/month wage totals that reference it.
-import { USERS } from './users.js'
+import { USERS, DEFAULT_HOURLY_RATE } from './users.js'
 
 const DAY = 86400000
 
@@ -31,6 +31,15 @@ const PATTERNS = [
   { start: '11:00', end: '19:00', breakMins: 45 },
   { start: '09:00', end: '14:00', breakMins: 0 },  // short/half day
 ]
+
+// Historical approvals were signed off at the staff member's standing hourly rate.
+function approvedPayFor(staff, pattern) {
+  const [sh, sm] = pattern.start.split(':').map(Number)
+  const [eh, em] = pattern.end.split(':').map(Number)
+  const mins = Math.max(0, (eh * 60 + em) - (sh * 60 + sm) - (pattern.breakMins || 0))
+  const rate = Number(staff.hourlyRate) > 0 ? Number(staff.hourlyRate) : DEFAULT_HOURLY_RATE
+  return Math.round((mins / 60) * rate * 100) / 100
+}
 
 export function generateShifts(days = 90, seed = 20240517) {
   const rand = rng(seed)
@@ -72,6 +81,9 @@ export function generateShifts(days = 90, seed = 20240517) {
         reviewedBy: status === 'approved' ? 'u3' : null,
         reviewedAt: status === 'approved' ? ts + 30 * 3600000 : null,
         reviewNote: null,
+        // The amount the admin confirmed at approval. Pending shifts carry none, because
+        // nobody has decided what they are worth yet.
+        approvedPay: status === 'approved' ? approvedPayFor(s, pattern) : null,
         ...pattern,
       })
     }

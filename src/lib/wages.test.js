@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  parseClock, shiftMinutes, shiftHours, rateFor, dailyRateFor, shiftWage, isFullDay,
+  parseClock, shiftMinutes, shiftHours, rateFor, dailyRateFor, shiftWage, suggestedPay, isFullDay,
   shiftFullDays, payableShifts, isPayable,
   summariseShifts, wagesByStaff, wagesByBranch, totalWages, wagesByPeriod,
 } from './wages.js'
@@ -230,5 +230,43 @@ describe('mixing day-rate and hourly shifts', () => {
 
   it('still pays nothing for an unapproved full day', () => {
     expect(totalWages([shift({ entryMode: 'full_day', status: 'pending' })], { u2: staff }).wage).toBe(0)
+  })
+})
+
+
+describe('admin-confirmed pay', () => {
+  it('pays the amount the admin agreed, not the standing rate', () => {
+    // A full day whose standing rate is GBP130 but which the admin approved at GBP150.
+    const s = shift({ entryMode: 'full_day', approvedPay: 150 })
+    expect(suggestedPay(s, staff)).toBe(130)   // what the rate would have given
+    expect(shiftWage(s, staff)).toBe(150)      // what was actually agreed
+  })
+
+  it('lets an admin agree less than the standing rate', () => {
+    expect(shiftWage(shift({ entryMode: 'hours', hours: 10, approvedPay: 100 }), staff)).toBe(100)
+  })
+
+  it('honours a confirmed zero rather than falling back to the rate', () => {
+    expect(shiftWage(shift({ approvedPay: 0 }), staff)).toBe(0)
+  })
+
+  it('falls back to the standing rate for records with no agreed amount', () => {
+    // Historical rota rows predate per-shift amounts; payroll must not drop them to zero.
+    expect(shiftWage(shift({ approvedPay: null }), staff)).toBe(128)
+  })
+
+  it('carries the agreed amount into staff, branch and period totals', () => {
+    const rows = [shift({ approvedPay: 150 }), shift({ id: 'b', date: '2026-03-03', at: new Date('2026-03-03T09:00:00').getTime(), approvedPay: 50 })]
+    expect(summariseShifts(rows, staff).wage).toBe(200)
+    expect(wagesByBranch(rows, { u2: staff })[0].wage).toBe(200)
+    expect(totalWages(rows, { u2: staff }).wage).toBe(200)
+  })
+
+  it('still pays nothing for an unapproved shift however large the amount on it', () => {
+    expect(totalWages([shift({ status: 'pending', approvedPay: 999 })], { u2: staff }).wage).toBe(0)
+  })
+
+  it('suggestedPay ignores any agreed amount — it is only ever the starting figure', () => {
+    expect(suggestedPay(shift({ entryMode: 'hours', hours: 10, approvedPay: 999 }), staff)).toBe(160)
   })
 })

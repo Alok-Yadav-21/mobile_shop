@@ -89,13 +89,15 @@ export function scopeTradeIns(actor, tradeIns) {
   return tradeIns.filter((t) => t.customerId === actor.id)
 }
 
-// Pay rate is compensation data: visible to admins, and to a staff member about themselves.
-// Everyone else gets the record with the rate stripped, not an error — staff still need to
-// see colleagues' names for rotas and repair assignment.
+// Pay rates are compensation data, and they are admin-only: what a shift is worth is decided
+// by an admin at approval, not read off a rate by the person being paid. Staff records keep
+// names and branches (needed for rotas and repair assignment) but never carry a rate to a
+// non-admin caller — including the staff member's own record, since the rate is not theirs
+// to see. Redacting rather than erroring keeps colleague lookups working.
 export function redactUser(actor, user) {
   if (!user) return user
-  if (isAdmin(actor) || actor?.id === user.id) return user
-  const { hourlyRate, ...safe } = user
+  if (isAdmin(actor)) return user
+  const { hourlyRate, dailyRate, ...safe } = user
   return safe
 }
 
@@ -104,7 +106,7 @@ export function scopeUsers(actor, users) {
   if (isAdmin(actor)) return users
   if (isStaff(actor)) {
     // Staff see colleagues (for rota and assignment context) and customers they serve, but
-    // never another person's pay rate.
+    // no pay rates at all — not a colleague's, and not their own.
     return users.map((u) => redactUser(actor, u))
   }
   // Customers get only their own record.

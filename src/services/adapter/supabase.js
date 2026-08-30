@@ -41,6 +41,7 @@ function mapShiftRow(row) {
     id: row.id, staffId: row.staff_id, branchId: row.branch_id, date: row.worked_on,
     at: new Date(row.worked_on).getTime(), start: row.starts_at, end: row.ends_at,
     breakMins: row.break_minutes ?? 0, entryMode: row.entry_mode, hours: row.hours == null ? null : Number(row.hours),
+    approvedPay: row.approved_pay == null ? null : Number(row.approved_pay),
     status: row.status, submittedBy: row.submitted_by, reviewedBy: row.reviewed_by,
     submittedAt: row.submitted_at ? new Date(row.submitted_at).getTime() : null,
     reviewedAt: row.reviewed_at ? new Date(row.reviewed_at).getTime() : null,
@@ -758,15 +759,23 @@ export const ShiftAPI = {
   },
   // Approval is a privileged RPC rather than a plain update, so the transition to 'approved'
   // — the thing that makes hours payable — is decided by the database, not the caller.
-  async review(id, decision, note) {
+  async review(id, decision, note, pay) {
     assertConnected()
-    const { data, error } = await supabase.rpc('review_shift', { shift_id: id, decision, note: note ?? null })
+    const { data, error } = await supabase.rpc('review_shift', {
+      shift_id: id, decision, note: note ?? null, pay: pay ?? null,
+    })
+    if (error) throw error
+    return data ? mapShiftRow(data) : null
+  },
+  async setPay(id, pay) {
+    assertConnected()
+    const { data, error } = await supabase.rpc('set_shift_pay', { shift_id: id, pay })
     if (error) throw error
     return data ? mapShiftRow(data) : null
   },
   async resubmit(id, patch = {}) {
     assertConnected()
-    const dbPatch = { status: 'pending', review_note: null, reviewed_by: null, reviewed_at: null, submitted_at: new Date().toISOString() }
+    const dbPatch = { status: 'pending', review_note: null, reviewed_by: null, reviewed_at: null, approved_pay: null, submitted_at: new Date().toISOString() }
     if (patch.date !== undefined) dbPatch.worked_on = patch.date
     if (patch.start !== undefined) dbPatch.starts_at = patch.start
     if (patch.end !== undefined) dbPatch.ends_at = patch.end

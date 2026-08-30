@@ -5,8 +5,8 @@ import {
 } from './authz.js'
 
 const admin = { id: 'u3', role: 'admin', email: 'admin@demo.com', superAdmin: true }
-const staffWol = { id: 'u2', role: 'staff', branch: 'wol', email: 'staff@demo.com', hourlyRate: 16 }
-const staffBlv = { id: 'u6', role: 'staff', branch: 'blv', email: 'jason@demo.com', hourlyRate: 14 }
+const staffWol = { id: 'u2', role: 'staff', branch: 'wol', email: 'staff@demo.com', hourlyRate: 16, dailyRate: 130 }
+const staffBlv = { id: 'u6', role: 'staff', branch: 'blv', email: 'jason@demo.com', hourlyRate: 14, dailyRate: 112 }
 const customer = { id: 'u1', role: 'customer', email: 'customer@demo.com', phone: '07700 900123' }
 
 describe('requireAuth', () => {
@@ -123,11 +123,17 @@ describe('redactUser', () => {
   it('strips a colleague pay rate from a staff view', () => {
     expect(redactUser(staffWol, staffBlv)).not.toHaveProperty('hourlyRate')
   })
-  it('keeps a staff member their own rate', () => {
-    expect(redactUser(staffWol, staffWol).hourlyRate).toBe(16)
+  it('strips a staff member OWN rate too — rates are an admin decision, not theirs to read', () => {
+    const out = redactUser(staffWol, staffWol)
+    expect(out).not.toHaveProperty('hourlyRate')
+    expect(out).not.toHaveProperty('dailyRate')
+  })
+  it('strips the day rate as well as the hourly one', () => {
+    expect(redactUser(staffWol, staffBlv)).not.toHaveProperty('dailyRate')
   })
   it('keeps every rate for an admin', () => {
     expect(redactUser(admin, staffBlv).hourlyRate).toBe(14)
+    expect(redactUser(admin, staffBlv).dailyRate).toBe(112)
   })
   it('keeps the rest of the record intact when redacting', () => {
     const out = redactUser(staffWol, staffBlv)
@@ -143,11 +149,12 @@ describe('scopeUsers', () => {
     expect(out).toHaveLength(4)
     expect(out.find((u) => u.id === 'u6').hourlyRate).toBe(14)
   })
-  it('lets staff see colleagues but never their pay', () => {
+  it('lets staff see colleagues but no pay rates at all, their own included', () => {
     const out = scopeUsers(staffWol, users)
     expect(out).toHaveLength(4)
     expect(out.find((u) => u.id === 'u6')).not.toHaveProperty('hourlyRate')
-    expect(out.find((u) => u.id === 'u2').hourlyRate).toBe(16)
+    expect(out.find((u) => u.id === 'u2')).not.toHaveProperty('hourlyRate')
+    expect(out.find((u) => u.id === 'u2')).not.toHaveProperty('dailyRate')
   })
   it('limits a customer to their own record', () => {
     const out = scopeUsers(customer, users)

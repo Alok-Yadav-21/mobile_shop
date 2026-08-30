@@ -38,6 +38,9 @@ create table if not exists shifts (
   reviewed_by   uuid references profiles(id),
   reviewed_at   timestamptz,
   review_note   text,
+  -- What the admin confirmed this shift pays. Set only by review_shift()/set_shift_pay()
+  -- below, never by the client, so a submission cannot arrive carrying its own price.
+  approved_pay  numeric(10,2) check (approved_pay is null or approved_pay >= 0),
   created_at    timestamptz not null default now(),
 
   -- One live submission per person per day; a rejected one may be superseded.
@@ -49,7 +52,9 @@ create table if not exists shifts (
     or (entry_mode = 'times' and starts_at is not null and ends_at is not null)
   ),
   -- A rejection has to say why, so the staff member can correct and resubmit.
-  constraint shifts_rejection_reason check (status <> 'rejected' or review_note is not null)
+  constraint shifts_rejection_reason check (status <> 'rejected' or review_note is not null),
+  -- Approved means an amount was agreed; nothing reaches payroll without one.
+  constraint shifts_approved_has_pay check (status <> 'approved' or approved_pay is not null)
 );
 
 create index if not exists shifts_staff_idx on shifts (staff_id, worked_on desc);
@@ -66,6 +71,7 @@ begin
     new.status := 'pending';          -- staff can never self-approve
     new.reviewed_by := null;
     new.reviewed_at := null;
+    new.approved_pay := null;         -- staff can never price their own shift
   end if;
   new.submitted_by := auth.uid();
   return new;
@@ -87,6 +93,7 @@ begin
     raise exception 'Only an admin can approve or reject submitted hours.' using errcode = '42501';
   end if;
   new.staff_id := old.staff_id;
+  new.approved_pay := old.approved_pay;   -- pay is an admin decision, not an edit
   return new;
 end $$;
 
@@ -114,7 +121,10 @@ create policy "shifts: own pending delete" on shifts for delete
 -- Approval is the act that makes hours payable, so it is a privileged function rather than a
 -- column a client can set. security definer + the explicit is_admin() check means calling it
 -- as a staff member fails inside the database.
-create or replace function review_shift(shift_id uuid, decision text, note text default null)
+-- Approving is also where the money is decided: the admin passes the amount this shift pays,
+-- and that figure is what enters payroll. It is a parameter of the privileged function, never
+-- a column the client can write.
+create or replace function review_shift(shift_id uuid, decision text, note text default null, pay numeric default null)
 returns shifts
 language plpgsql security definer as $$
 declare
@@ -129,10 +139,16 @@ begin
   if decision = 'rejected' and coalesce(btrim(note), '') = '' then
     raise exception 'A reason is required to reject submitted hours.';
   end if;
+  if decision = 'approved' and (pay is null or pay < 0) then
+    raise exception 'Enter the amount to pay for this shift before approving it.';
+  end if;
 
   update shifts set
     status = decision::shift_status,
     review_note = nullif(btrim(note), ''),
+    -- A rejected shift is worth nothing; clearing it stops a stale amount reappearing if the
+    -- shift is corrected and approved later.
+    approved_pay = case when decision = 'approved' then round(pay, 2) else null end,
     reviewed_by = auth.uid(),
     reviewed_at = now()
   where id = shift_id
@@ -141,8 +157,30 @@ begin
   return updated;
 end $$;
 
-revoke all on function review_shift(uuid, text, text) from public;
-grant execute on function review_shift(uuid, text, text) to authenticated;
+revoke all on function review_shift(uuid, text, text, numeric) from public;
+grant execute on function review_shift(uuid, text, text, numeric) to authenticated;
+
+-- Correcting an agreed amount without re-running the whole review.
+create or replace function set_shift_pay(shift_id uuid, pay numeric)
+returns shifts
+language plpgsql security definer as $$
+declare
+  updated shifts;
+begin
+  if not is_admin() then
+    raise exception 'Only an admin can change what a shift pays.' using errcode = '42501';
+  end if;
+  if pay is null or pay < 0 then
+    raise exception 'Enter a valid amount.';
+  end if;
+  update shifts set approved_pay = round(pay, 2), reviewed_by = auth.uid(), reviewed_at = now()
+  where id = shift_id
+  returning * into updated;
+  return updated;
+end $$;
+
+revoke all on function set_shift_pay(uuid, numeric) from public;
+grant execute on function set_shift_pay(uuid, numeric) to authenticated;
 
 -- What each approved shift is worth, resolved exactly the way src/lib/wages.js resolves it,
 -- so the database and the app can never disagree. Approved rows only, by construction.
@@ -165,18 +203,10 @@ select
                 else s.ends_at + interval '24 hours' - s.starts_at end
          )) / 3600.0) - (s.break_minutes / 60.0))
   end as paid_hours,
-  case
-    when s.entry_mode = 'full_day' then coalesce(p.daily_rate, 96)
-    else coalesce(p.hourly_rate, 12) * (case s.entry_mode
-      when 'hours' then least(s.hours, 16)
-      else greatest(0, (extract(epoch from (
-             case when s.ends_at >= s.starts_at then s.ends_at - s.starts_at
-                  else s.ends_at + interval '24 hours' - s.starts_at end
-           )) / 3600.0) - (s.break_minutes / 60.0))
-    end)
-  end as pay
+  -- The amount the admin agreed, not a re-derivation from rates: pay is a decision, and the
+  -- rates are only ever the starting suggestion shown to the reviewer.
+  s.approved_pay as pay
 from shifts s
-join profiles p on p.id = s.staff_id
 where s.status = 'approved';
 
 -- ---------------------------------------------------------------------------------------
