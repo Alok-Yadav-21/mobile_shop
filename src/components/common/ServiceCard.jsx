@@ -1,3 +1,5 @@
+import { GlowCard } from '@/components/ui-fx/GlowCard.jsx'
+
 export function ServiceCard({ icon:Icon, title, desc, featured=false }){
   if(featured){
     return (
@@ -15,10 +17,10 @@ export function ServiceCard({ icon:Icon, title, desc, featured=false }){
     )
   }
   return (
-    <div className="bento-tile group">
+    <GlowCard className="bento-tile group h-full">
       <div className="w-10 h-10 rounded-lg bg-brand-50 text-brand grid place-items-center mb-4 group-hover:bg-brand group-hover:text-white transition-colors"><Icon size={19}/></div>
       <h3 className="font-bold text-[15px]">{title}</h3>
       <p className="text-[13px] text-graphite-400 mt-1.5 leading-relaxed">{desc}</p>
-    </div>
+    </GlowCard>
   )
 }

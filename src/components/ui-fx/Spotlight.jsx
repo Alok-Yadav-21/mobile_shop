@@ -11,8 +11,10 @@ export function Spotlight({ className = '', fill = '#2F6BED' }) {
 
   return (
     <svg
-      className={`pointer-events-none absolute z-0 opacity-0 ${className}`}
-      style={{ opacity: reduce ? 0.35 : undefined }}
+      // No opacity on the svg itself: the fade belongs to the group below, and setting it
+      // here as well left the whole element at zero for everyone whose system was not asking
+      // for reduced motion — the light never appeared for almost anybody.
+      className={`pointer-events-none absolute z-0 ${className}`}
       viewBox="0 0 3787 2842"
       fill="none"
       aria-hidden="true"
@@ -21,8 +23,8 @@ export function Spotlight({ className = '', fill = '#2F6BED' }) {
         // Fades and drifts in once on mount. It never loops: a light that keeps moving pulls
         // the eye away from the content it is meant to frame.
         initial={reduce ? false : { opacity: 0, x: -120 }}
-        animate={reduce ? false : { opacity: 0.4, x: 0 }}
-        transition={{ duration: 1.6, ease: 'easeOut' }}
+        animate={{ opacity: 0.55, x: 0 }}
+        transition={{ duration: reduce ? 0 : 1.6, ease: 'easeOut' }}
         filter="url(#spotlight-blur)"
       >
         <ellipse
