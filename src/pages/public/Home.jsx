@@ -3,7 +3,7 @@ import { CategoryBlocks } from '@/components/sections/CategoryBlocks.jsx'
 import { PromiseStrip, PromoBanner, PromoBannerSecondary } from '@/components/sections/PromoBanner.jsx'
 import { FeaturedProducts } from '@/components/sections/FeaturedProducts.jsx'
 import { HowItWorks } from '@/components/sections/HowItWorks.jsx'
-import { BranchNetwork } from '@/components/sections/BranchNetwork.jsx'
+import { BranchFinder } from '@/components/sections/BranchFinder.jsx'
 import { Testimonials } from '@/components/sections/Testimonials.jsx'
 import { FaqSection } from '@/components/sections/FaqSection.jsx'
 
@@ -25,7 +25,7 @@ export default function Home() {
       <FeaturedProducts />
       <PromoBannerSecondary />
       <HowItWorks />
-      <BranchNetwork />
+      <BranchFinder />
       <Testimonials />
       <FaqSection />
     </>
