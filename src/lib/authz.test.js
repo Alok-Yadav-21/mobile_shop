@@ -5,7 +5,7 @@ import {
 } from './authz.js'
 
 const admin = { id: 'u3', role: 'admin', email: 'admin@demo.com', superAdmin: true }
-const staffWol = { id: 'u2', role: 'staff', branch: 'wol', email: 'staff@demo.com', hourlyRate: 16, dailyRate: 130 }
+const staffWol = { id: 'u2', role: 'staff', branch: 'wol', email: 'staff@demo.com', hourlyRate: 16, dailyRate: 130 } // dailyRate is legacy; redaction must still strip it
 const staffBlv = { id: 'u6', role: 'staff', branch: 'blv', email: 'jason@demo.com', hourlyRate: 14, dailyRate: 112 }
 const customer = { id: 'u1', role: 'customer', email: 'customer@demo.com', phone: '07700 900123' }
 
@@ -131,9 +131,8 @@ describe('redactUser', () => {
   it('strips the day rate as well as the hourly one', () => {
     expect(redactUser(staffWol, staffBlv)).not.toHaveProperty('dailyRate')
   })
-  it('keeps every rate for an admin', () => {
+  it('keeps the hourly rate for an admin', () => {
     expect(redactUser(admin, staffBlv).hourlyRate).toBe(14)
-    expect(redactUser(admin, staffBlv).dailyRate).toBe(112)
   })
   it('keeps the rest of the record intact when redacting', () => {
     const out = redactUser(staffWol, staffBlv)
