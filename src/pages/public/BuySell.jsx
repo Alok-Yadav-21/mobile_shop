@@ -20,10 +20,10 @@ const STEPS = [
 export default function BuySell(){
   const [active,setActive]=useState(0)
   return (<>
-    <PageHero kicker="Buy · Sell · Trade-in" title="Sell your device, or upgrade for less" desc="Get a fair estimate for your phone, laptop or MacBook. Bring it to any branch, verify ownership, and choose cash, transfer or store credit.">
+    <PageHero kicker="Sell to us" ghost="SELL" title="Sell your device, or trade it in" desc="Get a fair estimate for your phone, laptop or MacBook. Bring it to any branch, verify ownership, and choose cash, transfer or store credit.">
       <div className="flex flex-wrap gap-3 mt-8">
-        <Link to="/app/sell" className="btn bg-white text-ink">Value my device <ArrowRight size={16}/></Link>
-        <Link to="/refurbished" className="btn btn-outline">Shop refurbished instead</Link>
+        <Link to="/app/sell" className="btn btn-brand rounded-full">Value my device <ArrowRight size={16}/></Link>
+        <Link to="/products" className="btn rounded-full bg-white text-ink border border-graphite-200 hover:border-ink">Looking to buy instead?</Link>
       </div>
     </PageHero>
 

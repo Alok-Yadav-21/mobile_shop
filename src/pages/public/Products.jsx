@@ -26,7 +26,7 @@ export default function Products(){
   },[PRODUCTS,cat,cond,q,sort])
 
   return (<>
-    <PageHero kicker="Buy & sell" title="Shop devices & tech" desc="New, used and certified refurbished — phones, laptops, MacBooks, audio and accessories, backed by the same warranty across all 8 branches."/>
+    <PageHero kicker="Shop" ghost="DEVICES" title="Every device we sell" desc="New, used and certified refurbished — phones, laptops, MacBooks, audio and accessories, backed by the same warranty across all 8 branches."/>
     <section className="container-x section-pad">
       <div className="flex flex-col lg:flex-row gap-4 lg:items-center lg:justify-between mb-6">
         <div className="flex items-center gap-2 bg-white border border-graphite-200 rounded-xl px-3.5 py-2.5 max-w-sm">
