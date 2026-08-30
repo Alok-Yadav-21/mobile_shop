@@ -16,6 +16,7 @@ import {
 } from '@/constants/shifts.js'
 import { DashboardCard } from '@/components/common/DashboardCard.jsx'
 import { EmptyState } from '@/components/common/EmptyState.jsx'
+import { TableSkeleton } from '@/components/common/TableSkeleton.jsx'
 import { ShiftStatusBadge } from '@/components/common/ShiftStatusBadge.jsx'
 import { ReasonDialog } from '@/components/common/ReasonDialog.jsx'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog.jsx'
@@ -177,7 +178,7 @@ export default function ShiftApprovals() {
       </div>
 
       <div className="surface p-5 overflow-x-auto">
-        {loading ? <div className="text-graphite-400 text-[13px] py-6">Loading submissions…</div>
+        {loading ? <TableSkeleton rows={6} cols={8}/>
           : rows.length === 0 ? <EmptyState title={statusFilter === 'pending' ? 'Nothing waiting for review' : 'No submissions match those filters'} />
           : (
             <Table>

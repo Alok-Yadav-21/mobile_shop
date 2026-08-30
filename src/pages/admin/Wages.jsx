@@ -9,6 +9,7 @@ import { wagesByStaff, wagesByBranch, wagesByPeriod, totalWages, summariseShifts
 import { PERIODS, PERIOD_LABELS } from '@/constants/finance.js'
 import { DashboardCard } from '@/components/common/DashboardCard.jsx'
 import { EmptyState } from '@/components/common/EmptyState.jsx'
+import { TableSkeleton } from '@/components/common/TableSkeleton.jsx'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog.jsx'
 import { Table, Th, Td } from '@/components/custom-ui/table.jsx'
 import { money0, moneyExact, hoursFmt, fmtDate } from '@/utils/format.js'
@@ -145,7 +146,7 @@ export default function Wages() {
         <p className="text-[12px] text-graphite-400 mb-4">
           Days worked counts distinct calendar days, so two shifts in one day still counts once. Staff with no shifts in this window show zero rather than disappearing from payroll.
         </p>
-        {loading ? <div className="text-graphite-400 text-[13px] py-6">Loading rota…</div> : staffRows.length === 0 ? <EmptyState title="No staff match those filters" /> : (
+        {loading ? <TableSkeleton rows={6} cols={7}/> : staffRows.length === 0 ? <EmptyState title="No staff match those filters" /> : (
           <Table>
             <thead><tr>
               <Th>Staff</Th><Th>Hourly rate</Th><Th>Days</Th><Th>Full days</Th><Th>Hourly time</Th><Th>Avg / day</Th><Th>Wages</Th><Th></Th>
