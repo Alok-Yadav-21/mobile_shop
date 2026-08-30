@@ -19,11 +19,6 @@ export function Logo({ light = false, sub = true, className = '' }) {
             Virk
           </span>
           <span className="font-semibold text-[19px] tracking-[-.03em] text-signal">tech</span>
-          {/* Sits on the baseline as a full stop that never quite is one. */}
-          <span
-            className="ml-[3px] w-[5px] h-[5px] rounded-[1px] bg-brand transition-transform duration-300 group-hover:scale-125"
-            aria-hidden="true"
-          />
         </span>
         {sub && (
           <span

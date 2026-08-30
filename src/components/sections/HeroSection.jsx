@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { ArrowRight, Search, ShieldCheck, Star, Activity } from 'lucide-react'
 import { Spotlight } from '@/components/ui-fx/Spotlight.jsx'
 import { AuroraBackground } from '@/components/ui-fx/AuroraBackground.jsx'
+import { FlipWords } from '@/components/ui-fx/FlipWords.jsx'
 import heroImg from '@/assets/img/hero.jpg'
 import { BRAND } from '@/constants/brand.js'
 
@@ -14,7 +15,7 @@ const CHIPS = [
 
 export function HeroSection(){
   return (
-    <section className="relative overflow-hidden bg-ink-900 text-white">
+    <section className="relative overflow-hidden bg-ink-900 text-white lamp-glow">
       {/* Aurora sits under the grid so the mesh reads over the colour, not through it. */}
       <AuroraBackground/>
       <div className="absolute inset-0 bg-grid [background-size:26px_26px] opacity-[.35]"/>
@@ -26,7 +27,11 @@ export function HeroSection(){
             <span className="live-dot bg-signal"/>{BRAND.recognition}
           </span>
           <h1 className="text-4xl sm:text-[3.4rem] font-extrabold tracking-tight mt-6 leading-[1.06]">
-            Diagnosed properly.<br/><span className="grad-text">Repaired right.</span>
+            Diagnosed properly.<br/>
+            <FlipWords
+              className="grad-text"
+              words={['Repaired right.', 'Restored fast.', 'Backed by warranty.', 'Tracked end to end.']}
+            />
           </h1>
           <p className="text-slate-300 text-[16.5px] mt-5 max-w-xl leading-relaxed">
             Virktech is a modern technology brand for repairs, buying and selling — phones, laptops, MacBooks, audio and smart devices.
