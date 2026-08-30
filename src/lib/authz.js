@@ -83,6 +83,20 @@ export function scopeShifts(actor, shifts) {
   throw new AuthzError('Only staff and admins can view shift records.')
 }
 
+// Records owned by a customer and addressed by their id (notifications, addresses,
+// warranties). A caller may read their own; an admin may read anyone's. Asking for someone
+// else's is a denial rather than an empty list, so the attempt surfaces instead of looking
+// like there is simply no data.
+export function scopeOwned(actor, rows, requestedOwnerId, key = 'customerId') {
+  requireAuth(actor)
+  if (requestedOwnerId != null) requireSelfOrAdmin(actor, requestedOwnerId)
+  if (isAdmin(actor)) {
+    return requestedOwnerId == null ? rows : rows.filter((r) => r[key] === requestedOwnerId)
+  }
+  // Without an explicit owner the caller gets their own rows — never the whole table.
+  return rows.filter((r) => r[key] === actor.id)
+}
+
 export function scopeTradeIns(actor, tradeIns) {
   requireAuth(actor)
   if (isAdmin(actor) || isStaff(actor)) return tradeIns

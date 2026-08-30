@@ -13,9 +13,10 @@ import { canTransition, requiresReason } from '@/constants/status.js'
 import { isSuperAdmin } from '@/lib/permissions.js'
 import { getSession } from '@/services/session.js'
 import {
-  requireCan, requireSelfOrAdmin, isAdmin, isStaff,
-  scopeRepairs, scopeOrders, scopeShifts, scopeTradeIns, scopeUsers,
+  requireAuth, requireCan, requireSelfOrAdmin, isAdmin, isStaff, isCustomer,
+  scopeRepairs, scopeOrders, scopeShifts, scopeTradeIns, scopeUsers, scopeOwned,
 } from '@/lib/authz.js'
+import { customerCanCancelRepair } from '@/lib/permissions.js'
 
 const delay = (ms = 250) => new Promise((r) => setTimeout(r, ms))
 
@@ -70,13 +71,39 @@ function seedShifts() { return SHIFTS }
 // the two always start consistent.
 function seedBranchStock() { return generateBranchStock(loadJSON(KEYS.products, seedProducts())) }
 
+// Raises a notification on the account that booked a repair whenever its status moves. This
+// is what keeps the customer's view in step with the workshop without anybody re-entering
+// the information — the customer, staff and admin screens all read the same two stores.
+// Written directly rather than through NotificationAPI.create because the actor here is the
+// staff member changing the status, not the customer being told about it.
+function notifyRepairCustomer(repair, status) {
+  const users = loadJSON(KEYS.users, seedUsers())
+  const owner = users.find((u) => u.role === 'customer'
+    && ((repair.email && u.email === repair.email) || (repair.phone && u.phone === repair.phone)))
+  if (!owner) return
+  const list = loadJSON(KEYS.notifications, [])
+  list.unshift({
+    id: 'n' + Date.now(),
+    customerId: owner.id,
+    title: `${repair.ref} — ${status}`,
+    body: `Your ${[repair.brand, repair.model].filter(Boolean).join(' ') || 'device'} repair is now "${status}".`,
+    ref: repair.ref,
+    read: false,
+    createdAt: Date.now(),
+  })
+  saveJSON(KEYS.notifications, list)
+}
+
 export const RepairAPI = {
   // Scoped by the data layer: an admin sees every branch, a staff member only their own
   // branch's queue, a customer only the repairs booked in their name.
   async list() { await delay(); return scopeRepairs(currentActor(), loadJSON(KEYS.repairs, REPAIRS)) },
-  async forCustomer(phone) {
+  // The `phone` argument is ignored: who the caller is comes from the session, and
+  // scopeRepairs already narrows to their own bookings. Filtering by a phone number passed
+  // in by the page would let a wrong or missing value decide what someone sees.
+  async forCustomer() {
     await delay()
-    return scopeRepairs(currentActor(), loadJSON(KEYS.repairs, REPAIRS)).filter((r) => r.phone === phone)
+    return scopeRepairs(currentActor(), loadJSON(KEYS.repairs, REPAIRS))
   },
   async forBranch(branch) {
     await delay()
@@ -91,34 +118,71 @@ export const RepairAPI = {
   },
   async create(data) {
     await delay()
+    const actor = requireAuth(currentActor())
     const list = loadJSON(KEYS.repairs, REPAIRS)
     const ref = 'SPR-' + (4800 + list.length + 1)
-    const rep = { ref, status: 'Booking received', quote: null, tech: null, createdAt: Date.now(), history: [['Booking received', Date.now()]], notes: [], ...data }
+    // A customer books only in their own name. Staff and admins may book on behalf of someone
+    // at the counter, so their payload is taken as given.
+    const identity = isCustomer(actor)
+      ? { customer: data.customer || actor.name, email: actor.email, phone: data.phone || actor.phone }
+      : {}
+    const rep = { ref, status: 'Booking received', quote: null, tech: null, createdAt: Date.now(), history: [['Booking received', Date.now()]], notes: [], ...data, ...identity }
     list.unshift(rep); saveJSON(KEYS.repairs, list); return rep
   },
   // status must be a valid transition from the repair's current status (see constants/status.js);
   // transitions to Cancelled require a reason. Throws rather than silently applying an invalid change.
   async update(ref, patch) {
     await delay()
+    const actor = requireAuth(currentActor())
     const list = loadJSON(KEYS.repairs, REPAIRS)
+    // Resolved out of the caller's own scope, so a reference belonging to another branch or
+    // another customer is simply not found rather than editable.
+    const visible = scopeRepairs(actor, list).find((x) => x.ref === ref)
+    if (!visible) return null
     const r = list.find((x) => x.ref === ref)
-    if (!r) return null
-    if (patch.status && patch.status !== r.status) {
-      if (!canTransition(r.status, patch.status)) throw new Error(`Cannot move a repair from "${r.status}" to "${patch.status}".`)
+
+    // A customer may only withdraw their own booking, and only before the device is taken in.
+    // Everything else about a repair is staff/admin territory.
+    if (isCustomer(actor)) {
+      const onlyCancelling = patch.status === 'Cancelled'
+        && Object.keys(patch).every((k) => ['status', 'cancellationReason'].includes(k))
+      if (!onlyCancelling) throw new Error('You can only cancel your own booking.')
+      if (!customerCanCancelRepair(r)) throw new Error('This repair can no longer be cancelled online — please call the branch.')
+    } else {
+      requireCan(actor, 'updateRepairStatus')
+    }
+
+    // Captured before the write: `visible` is a filtered reference to the same object as `r`,
+    // not a copy, so assigning the patch updates both and a later comparison against it would
+    // always find the status unchanged.
+    const previousStatus = r.status
+
+    if (patch.status && patch.status !== previousStatus) {
+      if (!canTransition(previousStatus, patch.status)) throw new Error(`Cannot move a repair from "${previousStatus}" to "${patch.status}".`)
       if (requiresReason(patch.status) && !patch.cancellationReason) throw new Error('A reason is required to cancel a repair.')
       r.history.push([patch.status, Date.now()])
     }
-    Object.assign(r, patch); saveJSON(KEYS.repairs, list); return r
+    Object.assign(r, patch); saveJSON(KEYS.repairs, list)
+
+    // Keep the customer's view in step with the workshop's: a status change raises a
+    // notification against the account that booked it, which is what makes the customer
+    // dashboard reflect staff activity without anyone re-entering it.
+    if (patch.status && patch.status !== previousStatus) notifyRepairCustomer(r, patch.status)
+    return r
   },
   async addNote(ref, note) {
     await delay()
+    const actor = currentActor()
+    requireCan(actor, 'addCustomerNote')
     const list = loadJSON(KEYS.repairs, REPAIRS)
+    if (!scopeRepairs(actor, list).some((x) => x.ref === ref)) return null
     const r = list.find((x) => x.ref === ref)
     if (!r) return null
     r.notes.push({ ...note, at: Date.now() }); saveJSON(KEYS.repairs, list); return r
   },
   async archive(ref) {
     await delay()
+    requireCan(currentActor(), 'archiveRepair')
     const list = loadJSON(KEYS.repairs, REPAIRS)
     const r = list.find((x) => x.ref === ref)
     if (!r) return null
@@ -126,6 +190,7 @@ export const RepairAPI = {
   },
   async deleteDraft(ref) {
     await delay()
+    requireCan(currentActor(), 'deleteRepairDraft')
     const list = loadJSON(KEYS.repairs, REPAIRS)
     const r = list.find((x) => x.ref === ref)
     if (!r) return false
@@ -133,9 +198,16 @@ export const RepairAPI = {
     saveJSON(KEYS.repairs, list.filter((x) => x.ref !== ref)); return true
   },
   // --- parts used on a repair ---
-  async listParts(ref) { await delay(80); return loadJSON(KEYS.repairParts, {})[ref] || [] },
+  async listParts(ref) {
+    await delay(80)
+    const actor = currentActor()
+    // Parts hang off a repair, so entitlement to them follows entitlement to the repair.
+    if (!scopeRepairs(actor, loadJSON(KEYS.repairs, REPAIRS)).some((r) => r.ref === ref)) return []
+    return loadJSON(KEYS.repairParts, {})[ref] || []
+  },
   async addPart(ref, part) {
     await delay()
+    requireCan(currentActor(), 'manageInventory')
     const store = loadJSON(KEYS.repairParts, {})
     store[ref] = [...(store[ref] || []), { id: 'rp' + Date.now(), addedAt: Date.now(), ...part }]
     saveJSON(KEYS.repairParts, store)
@@ -160,12 +232,14 @@ export const ProductAPI = {
   // New products start inactive/draft until an admin explicitly activates them.
   async create(data) {
     await delay()
+    requireCan(currentActor(), 'manageProducts')
     const list = loadJSON(KEYS.products, seedProducts())
     const p = { id: 'p' + Date.now(), active: false, archived: false, stock: 0, lowStockThreshold: 3, ...data }
     list.unshift(p); saveJSON(KEYS.products, list); return p
   },
   async update(id, patch) {
     await delay()
+    requireCan(currentActor(), 'manageProducts')
     const list = loadJSON(KEYS.products, seedProducts())
     const p = list.find((x) => x.id === id)
     if (!p) return null
@@ -173,6 +247,7 @@ export const ProductAPI = {
   },
   async duplicate(id) {
     await delay()
+    requireCan(currentActor(), 'manageProducts')
     const list = loadJSON(KEYS.products, seedProducts())
     const src = list.find((x) => x.id === id)
     if (!src) return null
@@ -186,6 +261,7 @@ export const ProductAPI = {
   // no stock-movement history. Throws with the exact blockers rather than silently refusing.
   async remove(id, blockers = []) {
     await delay()
+    requireCan(currentActor(), 'deleteProduct')
     if (blockers.length) throw new Error(`Can't permanently delete — ${blockers.join(', ')}.`)
     const list = loadJSON(KEYS.products, seedProducts())
     saveJSON(KEYS.products, list.filter((p) => p.id !== id))
@@ -193,6 +269,7 @@ export const ProductAPI = {
   },
   async adjustStock(id, delta, reason, actorId) {
     await delay()
+    requireCan(currentActor(), 'manageInventory')
     const list = loadJSON(KEYS.products, seedProducts())
     const p = list.find((x) => x.id === id)
     if (!p) return null
@@ -205,7 +282,11 @@ export const ProductAPI = {
     saveJSON(KEYS.inventoryMoves, moves)
     return p
   },
-  async stockHistory(id) { await delay(80); return loadJSON(KEYS.inventoryMoves, []).filter((m) => m.productId === id) },
+  async stockHistory(id) {
+    await delay(80)
+    requireCan(currentActor(), 'manageInventory')
+    return loadJSON(KEYS.inventoryMoves, []).filter((m) => m.productId === id)
+  },
   async lowStock() {
     await delay()
     return loadJSON(KEYS.products, seedProducts()).filter((p) => p.active !== false && !p.archived && p.stock <= (p.lowStockThreshold ?? 3))
@@ -214,6 +295,7 @@ export const ProductAPI = {
   async branchStock(id) { await delay(80); return loadJSON(KEYS.branchStock, seedBranchStock()).filter((r) => r.productId === id) },
   async setBranchStock(id, branchId, quantity) {
     await delay()
+    requireCan(currentActor(), 'manageInventory')
     const list = loadJSON(KEYS.branchStock, seedBranchStock())
     const row = list.find((r) => r.productId === id && r.branchId === branchId)
     if (row) row.quantity = quantity
@@ -223,6 +305,7 @@ export const ProductAPI = {
   },
   async transferStock(id, fromBranchId, toBranchId, quantity) {
     await delay()
+    requireCan(currentActor(), 'transferStock')
     const list = loadJSON(KEYS.branchStock, seedBranchStock())
     const from = list.find((r) => r.productId === id && r.branchId === fromBranchId)
     if (!from || from.quantity < quantity) throw new Error('Not enough stock at the source branch to transfer.')
@@ -244,12 +327,14 @@ export const CategoryAPI = {
   },
   async create(name) {
     await delay()
+    requireCan(currentActor(), 'manageCategories')
     const list = loadJSON(KEYS.categories, seedCategories())
     if (list.some((c) => c.name.toLowerCase() === name.toLowerCase())) throw new Error('That category already exists.')
     list.push({ name, active: true, archived: false }); saveJSON(KEYS.categories, list); return list
   },
   async update(name, patch) {
     await delay()
+    requireCan(currentActor(), 'manageCategories')
     const list = loadJSON(KEYS.categories, seedCategories())
     const c = list.find((x) => x.name === name)
     if (!c) return null
@@ -260,6 +345,7 @@ export const CategoryAPI = {
   async restore(name) { return CategoryAPI.update(name, { archived: false }) },
   async remove(name, blockers = []) {
     await delay()
+    requireCan(currentActor(), 'manageCategories')
     if (blockers.length) throw new Error(`Can't delete — ${blockers.join(', ')}.`)
     const list = loadJSON(KEYS.categories, seedCategories())
     saveJSON(KEYS.categories, list.filter((c) => c.name !== name))
@@ -282,12 +368,14 @@ export const ServiceAPI = {
   },
   async create(data) {
     await delay()
+    requireCan(currentActor(), 'manageServices')
     const list = loadJSON(KEYS.services, seedServices().map(stripIcon))
     const s = stripIcon({ id: 'svc' + Date.now(), active: false, archived: false, ...data })
     list.unshift(s); saveJSON(KEYS.services, list); return mergeIcon(s)
   },
   async update(id, patch) {
     await delay()
+    requireCan(currentActor(), 'manageServices')
     const list = loadJSON(KEYS.services, seedServices().map(stripIcon))
     const s = list.find((x) => x.id === id)
     if (!s) return null
@@ -298,6 +386,7 @@ export const ServiceAPI = {
   async restore(id) { return ServiceAPI.update(id, { archived: false }) },
   async remove(id, blockers = []) {
     await delay()
+    requireCan(currentActor(), 'manageServices')
     if (blockers.length) throw new Error(`Can't delete — ${blockers.join(', ')}.`)
     const list = loadJSON(KEYS.services, seedServices().map(stripIcon))
     saveJSON(KEYS.services, list.filter((s) => s.id !== id))
@@ -318,6 +407,7 @@ export const BranchAPI = {
   // before they start appearing in customer-facing branch pickers.
   async create(data) {
     await delay()
+    requireCan(currentActor(), 'manageBranches')
     const list = loadJSON(KEYS.branches, seedBranches())
     const id = (data.id || data.area || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 6) || 'br' + Date.now()
     if (list.some((b) => b.id === id)) throw new Error('A branch with that code already exists — choose a different name or code.')
@@ -331,6 +421,7 @@ export const BranchAPI = {
   },
   async update(id, patch) {
     await delay()
+    requireCan(currentActor(), 'manageBranches')
     const list = loadJSON(KEYS.branches, seedBranches())
     const b = list.find((x) => x.id === id)
     if (!b) return null
@@ -341,6 +432,7 @@ export const BranchAPI = {
   async restore(id) { return BranchAPI.update(id, { archived: false }) },
   async remove(id, blockers = []) {
     await delay()
+    requireCan(currentActor(), 'manageBranches')
     if (blockers.length) throw new Error(`Can't delete — ${blockers.join(', ')}.`)
     const list = loadJSON(KEYS.branches, seedBranches())
     saveJSON(KEYS.branches, list.filter((b) => b.id !== id))
@@ -393,6 +485,7 @@ export const OrderAPI = {
   },
   async updateStatus(ref, status) {
     await delay()
+    requireCan(currentActor(), 'manageOrders')
     const list = loadJSON(KEYS.orders, seedOrders())
     const o = list.find((x) => x.reference === ref)
     if (!o) return null
@@ -401,7 +494,12 @@ export const OrderAPI = {
   // eligible = not yet dispatched/completed; restores stock for each line item.
   async cancel(ref, reason) {
     await delay()
+    const actor = requireAuth(currentActor())
     const list = loadJSON(KEYS.orders, seedOrders())
+    // Only an order the caller can actually see, and only their own unless they manage orders.
+    const visible = scopeOrders(actor, list).find((x) => x.reference === ref)
+    if (!visible) return null
+    if (!isAdmin(actor) && visible.customerId !== actor.id) requireCan(actor, 'manageOrders')
     const o = list.find((x) => x.reference === ref)
     if (!o) return null
     if (['dispatched', 'completed', 'cancelled'].includes(o.status)) throw new Error(`Order ${ref} can no longer be cancelled (status: ${o.status}).`)
@@ -623,7 +721,10 @@ export const TradeInAPI = {
     const out = scopeTradeIns(currentActor(), loadJSON(KEYS.tradeIns, []))
     return out.filter((t) => !customerId || t.customerId === customerId)
   },
-  async get(ref) { await delay(); return loadJSON(KEYS.tradeIns, []).find((t) => t.reference === ref) },
+  async get(ref) {
+    await delay()
+    return scopeTradeIns(currentActor(), loadJSON(KEYS.tradeIns, [])).find((t) => t.reference === ref)
+  },
   async create(data) {
     await delay()
     const list = loadJSON(KEYS.tradeIns, [])
@@ -633,6 +734,7 @@ export const TradeInAPI = {
   },
   async update(reference, patch) {
     await delay()
+    requireCan(currentActor(), 'inspectTradeIn')
     const list = loadJSON(KEYS.tradeIns, [])
     const t = list.find((x) => x.reference === reference)
     if (!t) return null
@@ -642,7 +744,11 @@ export const TradeInAPI = {
   // only requests still in the early stages may be withdrawn by the customer
   async cancel(reference) {
     await delay()
+    const actor = requireAuth(currentActor())
     const list = loadJSON(KEYS.tradeIns, [])
+    const visible = scopeTradeIns(actor, list).find((x) => x.reference === reference)
+    if (!visible) return null
+    if (!isAdmin(actor) && visible.customerId !== actor.id) requireCan(actor, 'inspectTradeIn')
     const t = list.find((x) => x.reference === reference)
     if (!t) return null
     if (!['submitted', 'valuation_review'].includes(t.status)) throw new Error(`Trade-in ${reference} can no longer be cancelled (status: ${t.status}).`)
@@ -670,6 +776,16 @@ export const UserAPI = {
   },
   async update(id, patch) {
     await delay()
+    const actor = currentActor()
+    // Anyone may maintain their own profile; changing somebody else's account is user admin.
+    // Role and pay rate are stripped from a self-update so nobody can promote or re-price
+    // themselves through the profile screen.
+    if (!isAdmin(actor) && actor?.id === id) {
+      const { role, hourlyRate, dailyRate, superAdmin, branch, status, archived, ...safe } = patch
+      patch = safe
+    } else {
+      requireCan(actor, 'manageUsers')
+    }
     const list = loadJSON(KEYS.users, seedUsers())
     const u = list.find((x) => x.id === id)
     if (!u) return null
@@ -719,9 +835,15 @@ export const UserAPI = {
     saveJSON(KEYS.users, list.filter((u) => u.id !== id))
     return { deleted: true, deactivated: false }
   },
-  async listNotes(customerId) { await delay(80); return loadJSON(KEYS.customerNotes, []).filter((n) => n.customerId === customerId) },
+  // Internal notes staff keep about a customer — never visible to that customer.
+  async listNotes(customerId) {
+    await delay(80)
+    requireCan(currentActor(), 'addCustomerNote')
+    return loadJSON(KEYS.customerNotes, []).filter((n) => n.customerId === customerId)
+  },
   async addNote(customerId, note) {
     await delay()
+    requireCan(currentActor(), 'addCustomerNote')
     const list = loadJSON(KEYS.customerNotes, [])
     const entry = { id: 'cn' + Date.now(), customerId, at: Date.now(), ...note }
     list.unshift(entry); saveJSON(KEYS.customerNotes, list); return entry
@@ -729,32 +851,51 @@ export const UserAPI = {
 }
 
 export const AddressAPI = {
-  async list(customerId) { await delay(80); return loadJSON(KEYS.addresses, []).filter((a) => a.customerId === customerId) },
+  async list(customerId) {
+    await delay(80)
+    return scopeOwned(currentActor(), loadJSON(KEYS.addresses, []), customerId)
+  },
   async create(customerId, address) {
     await delay()
+    const actor = requireAuth(currentActor())
+    requireSelfOrAdmin(actor, customerId ?? actor.id)
     const list = loadJSON(KEYS.addresses, [])
-    const entry = { id: 'ad' + Date.now(), customerId, ...address }
+    const entry = { id: 'ad' + Date.now(), customerId: customerId ?? actor.id, ...address }
     list.unshift(entry); saveJSON(KEYS.addresses, list); return entry
   },
 }
 
 export const WarrantyAPI = {
-  async list(customerId) { await delay(80); return loadJSON(KEYS.warranties, []).filter((w) => w.customerId === customerId) },
+  async list(customerId) {
+    await delay(80)
+    return scopeOwned(currentActor(), loadJSON(KEYS.warranties, []), customerId)
+  },
 }
 
 export const NotificationAPI = {
-  async list(customerId) { await delay(80); return loadJSON(KEYS.notifications, []).filter((n) => !customerId || n.customerId === customerId) },
+  // Omitting customerId used to return the whole table; it now means "mine".
+  async list(customerId) {
+    await delay(80)
+    return scopeOwned(currentActor(), loadJSON(KEYS.notifications, []), customerId)
+  },
   async create(data) {
     await delay(80)
+    const actor = requireAuth(currentActor())
+    // Messaging another account is a staff/admin action; a customer can only ever raise one
+    // against themselves.
+    if (data.customerId && data.customerId !== actor.id) requireCan(actor, 'manageCustomers')
     const list = loadJSON(KEYS.notifications, [])
-    const n = { id: 'n' + Date.now(), read: false, createdAt: Date.now(), ...data }
+    const n = { id: 'n' + Date.now(), read: false, createdAt: Date.now(), ...data, customerId: data.customerId ?? actor.id }
     list.unshift(n); saveJSON(KEYS.notifications, list); return n
   },
   async markRead(id) {
     await delay(50)
+    const actor = requireAuth(currentActor())
     const list = loadJSON(KEYS.notifications, [])
     const n = list.find((x) => x.id === id)
-    if (n) n.read = true
+    if (!n) return null
+    requireSelfOrAdmin(actor, n.customerId)
+    n.read = true
     saveJSON(KEYS.notifications, list); return n
   },
 }
@@ -763,6 +904,7 @@ export const SettingsAPI = {
   async get(key, fallback) { await delay(50); return loadJSON(KEYS.settings, {})[key] ?? fallback },
   async set(key, value) {
     await delay(50)
+    requireCan(currentActor(), 'manageSettings')
     const all = loadJSON(KEYS.settings, {})
     all[key] = value; saveJSON(KEYS.settings, all); return value
   },

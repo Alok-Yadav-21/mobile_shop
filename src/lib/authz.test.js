@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   AuthzError, requireAuth, requireRole, requireCan, requireBranchScope, requireSelfOrAdmin,
-  scopeRepairs, scopeOrders, scopeShifts, scopeUsers, redactUser, isAdmin, isStaff,
+  scopeRepairs, scopeOrders, scopeShifts, scopeUsers, scopeOwned, redactUser, isAdmin, isStaff,
 } from './authz.js'
 
 const admin = { id: 'u3', role: 'admin', email: 'admin@demo.com', superAdmin: true }
@@ -168,5 +168,62 @@ describe('role predicates', () => {
     expect(isAdmin(staffWol)).toBe(false)
     expect(isStaff(staffWol)).toBe(true)
     expect(isAdmin(null)).toBe(false)
+  })
+})
+
+
+describe('scopeOwned', () => {
+  // Notifications, addresses and warranties are all addressed by customer id. Before this
+  // existed, calling list() with no argument returned the whole table to any caller.
+  const rows = [
+    { id: 'n1', customerId: 'u1', title: 'mine' },
+    { id: 'n2', customerId: 'u9', title: 'someone else' },
+  ]
+
+  it('returns only the caller own rows when no owner is named', () => {
+    expect(scopeOwned(customer, rows).map((r) => r.id)).toEqual(['n1'])
+  })
+
+  it('never returns the whole table to a customer', () => {
+    expect(scopeOwned(customer, rows)).toHaveLength(1)
+  })
+
+  it('refuses an explicit request for someone else rows', () => {
+    expect(() => scopeOwned(customer, rows, 'u9')).toThrow(AuthzError)
+  })
+
+  it('allows a caller to name themselves', () => {
+    expect(scopeOwned(customer, rows, 'u1').map((r) => r.id)).toEqual(['n1'])
+  })
+
+  it('gives an admin the whole table, or any single owner they ask for', () => {
+    expect(scopeOwned(admin, rows)).toHaveLength(2)
+    expect(scopeOwned(admin, rows, 'u9').map((r) => r.id)).toEqual(['n2'])
+  })
+
+  it('refuses a signed-out caller', () => {
+    expect(() => scopeOwned(null, rows)).toThrow(AuthzError)
+  })
+
+  it('supports a different owner key', () => {
+    const staffRows = [{ id: 'a', staffId: 'u2' }, { id: 'b', staffId: 'u6' }]
+    expect(scopeOwned(staffWol, staffRows, undefined, 'staffId').map((r) => r.id)).toEqual(['a'])
+  })
+})
+
+describe('capability coverage for newly guarded actions', () => {
+  it('keeps catalogue and platform writes admin-only', () => {
+    for (const action of ['manageServices', 'manageProducts', 'manageCategories', 'manageBranches', 'manageOrders', 'manageSettings']) {
+      expect(() => requireCan(customer, action)).toThrow(AuthzError)
+      expect(() => requireCan(staffWol, action)).toThrow(AuthzError)
+      expect(() => requireCan(admin, action)).not.toThrow()
+    }
+  })
+
+  it('lets staff touch inventory and customer notes, but not a customer', () => {
+    for (const action of ['manageInventory', 'addCustomerNote', 'updateRepairStatus']) {
+      expect(() => requireCan(customer, action)).toThrow(AuthzError)
+      expect(() => requireCan(staffWol, action)).not.toThrow()
+    }
   })
 })

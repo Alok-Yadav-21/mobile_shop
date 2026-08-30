@@ -31,6 +31,7 @@ const CAPABILITIES = {
   addCustomerNote: [STAFF, ADMIN],
 
   // catalogue / inventory
+  manageServices: [ADMIN],
   manageProducts: [ADMIN],
   manageCategories: [ADMIN],
   manageInventory: [STAFF, ADMIN],
