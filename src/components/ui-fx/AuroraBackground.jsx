@@ -11,15 +11,15 @@ export function AuroraBackground({ className }) {
     <div className={cn('pointer-events-none absolute inset-0 overflow-hidden', className)} aria-hidden="true">
       <div
         className="absolute -top-1/3 -left-1/4 h-[70%] w-[70%] rounded-full opacity-[.28] blur-[110px] animate-aurora-a"
-        style={{ background: 'radial-gradient(circle at 50% 50%, #2F6BED 0%, transparent 65%)' }}
+        style={{ background: 'radial-gradient(circle at 50% 50%, #4F46E5 0%, transparent 65%)' }}
       />
       <div
         className="absolute -bottom-1/3 right-0 h-[65%] w-[60%] rounded-full opacity-[.22] blur-[120px] animate-aurora-b"
-        style={{ background: 'radial-gradient(circle at 50% 50%, #7C3AED 0%, transparent 65%)' }}
+        style={{ background: 'radial-gradient(circle at 50% 50%, #7C5CFF 0%, transparent 65%)' }}
       />
       <div
         className="absolute top-1/4 right-1/4 h-[45%] w-[45%] rounded-full opacity-[.16] blur-[100px] animate-aurora-a"
-        style={{ background: 'radial-gradient(circle at 50% 50%, #22D3B8 0%, transparent 60%)', animationDelay: '-9s' }}
+        style={{ background: 'radial-gradient(circle at 50% 50%, #14B8A6 0%, transparent 60%)', animationDelay: '-9s' }}
       />
     </div>
   )

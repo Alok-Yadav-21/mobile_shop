@@ -9,7 +9,7 @@ import { cn } from '@/lib/cn.js'
 //
 // Pointer-driven only: it does nothing on touch or keyboard, so it is decoration and never
 // the thing that tells you a card is interactive. Focus and hover borders do that.
-export function GlowCard({ as: Tag = 'div', className, children, glow = 'rgba(47,107,237,.13)', ...props }) {
+export function GlowCard({ as: Tag = 'div', className, children, glow = 'rgba(79,70,229,.14)', ...props }) {
   const ref = useRef(null)
   const reduce = useReducedMotion()
   const [lit, setLit] = useState(false)
