@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { Wrench, ArrowLeftRight, ShoppingBag } from 'lucide-react'
+import { Meteors } from '@/components/ui-fx/Meteors.jsx'
 
 const PATHS = [
   { icon:Wrench, label:'Book a repair', desc:'Get a diagnostic & quote', to:'/app/book' },
@@ -11,6 +12,7 @@ export function CTASection(){
   return (
     <section className="container-x pb-20 pt-4">
       <div className="rounded-3xl bg-ink-900 text-white p-10 sm:p-14 relative overflow-hidden">
+        <Meteors number={16}/>
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-violet to-transparent" aria-hidden/>
         <div className="relative text-center max-w-lg mx-auto mb-10">
           <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight">Ready when your tech isn't.</h2>

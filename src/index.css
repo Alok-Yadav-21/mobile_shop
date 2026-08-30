@@ -152,3 +152,32 @@ body{ @apply bg-white text-ink antialiased; font-family: theme('fontFamily.sans'
 }
 .animate-aurora-a { animation: aurora-a 26s ease-in-out infinite; }
 .animate-aurora-b { animation: aurora-b 34s ease-in-out infinite; }
+
+/* Meteors fall diagonally and fade before they land, so the panel never fills up with
+   streaks sitting at the bottom edge. */
+@keyframes meteor {
+  0%   { transform: rotate(215deg) translateX(0); opacity: 1; }
+  70%  { opacity: 1; }
+  100% { transform: rotate(215deg) translateX(-720px); opacity: 0; }
+}
+.animate-meteor { animation: meteor linear infinite; }
+
+/* The lamp: a conic wedge of light thrown down from the top edge of a dark section. */
+.lamp-glow::before,
+.lamp-glow::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  height: 220px;
+  width: 45%;
+  filter: blur(60px);
+  pointer-events: none;
+}
+.lamp-glow::before {
+  left: 8%;
+  background: conic-gradient(from 70deg at center top, theme('colors.brand.600') 0deg, transparent 70deg);
+}
+.lamp-glow::after {
+  right: 8%;
+  background: conic-gradient(from 290deg at center top, transparent 290deg, theme('colors.signal.500') 360deg);
+}
