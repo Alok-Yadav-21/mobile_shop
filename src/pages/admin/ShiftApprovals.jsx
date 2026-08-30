@@ -9,7 +9,7 @@ import { useAsync } from '@/hooks/useAsync.js'
 import { ShiftAPI, UserAPI, BranchAPI } from '@/services/api.js'
 import { can } from '@/lib/permissions.js'
 import { logAction } from '@/services/auditService.js'
-import { shiftHours, shiftWage, suggestedPay, isFullDay, rateFor, dailyRateFor, round2 } from '@/lib/wages.js'
+import { shiftHours, shiftWage, suggestedPay, isFullDay, rateFor, round2 } from '@/lib/wages.js'
 import {
   SHIFT_STATUSES, SHIFT_STATUS_LABELS, ENTRY_MODES, ENTRY_MODE_LABELS,
   MIN_SHIFT_HOURS, MAX_SHIFT_HOURS,
@@ -81,7 +81,20 @@ export default function ShiftApprovals() {
   }, [shifts, statusFilter, branchFilter, q, staffById])
 
   const pendingAll = shifts.filter((s) => s.status === 'pending')
-  const pendingValue = round2(pendingAll.reduce((sum, s) => sum + suggestedPay(s, staffById[s.staffId]), 0))
+  // Only hourly submissions can be valued ahead of review; a full day has no price until an
+  // admin sets one, so those are counted rather than guessed at.
+  const pendingValue = round2(pendingAll.reduce((sum, s) => sum + (suggestedPay(s, staffById[s.staffId]) ?? 0), 0))
+  const pendingFullDays = pendingAll.filter(isFullDay).length
+
+  // The last full day this person was actually paid for, offered as a reference point when
+  // pricing the next one. Shown, never prefilled: it informs the decision without becoming a
+  // default that quietly hardens into a fixed rate.
+  const lastFullDayPay = (staffId) => {
+    const prior = shifts
+      .filter((s) => s.staffId === staffId && isFullDay(s) && s.status === 'approved' && s.approvedPay != null)
+      .sort((a, b) => b.at - a.at)[0]
+    return prior ? prior.approvedPay : null
+  }
   const pendingHours = round2(pendingAll.reduce((sum, s) => sum + shiftHours(s), 0))
 
   const decide = async (shift, decision, note, pay) => {
@@ -139,7 +152,7 @@ export default function ShiftApprovals() {
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <DashboardCard icon={Hourglass} label="Awaiting review" value={pendingAll.length} tone={pendingAll.length ? 'amber' : 'green'} />
-        <DashboardCard icon={PoundSterling} label="Value at standing rates" value={moneyExact(pendingValue)} tone="violet" />
+        <DashboardCard icon={PoundSterling} label={`Hourly value at rates · ${pendingFullDays} full ${pendingFullDays === 1 ? 'day' : 'days'} unpriced`} value={moneyExact(pendingValue)} tone="violet" />
         <DashboardCard icon={CheckCircle2} label="Approved" value={shifts.filter((s) => s.status === 'approved').length} tone="green" />
         <DashboardCard icon={XCircle} label="Rejected" value={shifts.filter((s) => s.status === 'rejected').length} tone="brand" />
       </div>
@@ -190,13 +203,16 @@ export default function ShiftApprovals() {
                       </Td>
                       <Td className="mono-data font-bold">{fullDay ? '1 day' : hoursFmt(shiftHours(s))}</Td>
                       {/* Which rate applies follows from how the shift was recorded. */}
+                      {/* A full day has no standing rate — its price is set at approval. */}
                       <Td className="mono-data text-graphite-500">
-                        {fullDay ? `${moneyExact(dailyRateFor(staff))}/day` : `${moneyExact(rateFor(staff))}/h`}
+                        {fullDay ? <span className="text-graphite-400">Set on approval</span> : `${moneyExact(rateFor(staff))}/h`}
                       </Td>
                       <Td className="mono-data font-bold">
                         {s.status === 'approved' && s.approvedPay != null
                           ? moneyExact(s.approvedPay)
-                          : <span className="font-normal text-graphite-400">{moneyExact(suggestedPay(s, staff))}</span>}
+                          : suggestedPay(s, staff) == null
+                            ? <span className="font-normal text-graphite-400">&mdash;</span>
+                            : <span className="font-normal text-graphite-400">{moneyExact(suggestedPay(s, staff))}</span>}
                       </Td>
                       <Td className="text-[12px] text-graphite-400">{timeAgo(s.submittedAt)}</Td>
                       <Td>
@@ -209,7 +225,7 @@ export default function ShiftApprovals() {
                             <Pencil size={13} /> Edit
                           </button>
                           {s.status !== 'approved' && (
-                            <button onClick={() => setApproving({ shift: s, amount: String(suggestedPay(s, staff)) })} className="text-[12px] font-semibold text-emerald-600 hover:underline inline-flex items-center gap-1">
+                            <button onClick={() => setApproving({ shift: s, amount: suggestedPay(s, staff) == null ? '' : String(suggestedPay(s, staff)), lastPaid: lastFullDayPay(s.staffId) })} className="text-[12px] font-semibold text-emerald-600 hover:underline inline-flex items-center gap-1">
                               <Check size={13} /> Approve
                             </button>
                           )}
@@ -249,7 +265,7 @@ export default function ShiftApprovals() {
 
               {entryMode === 'full_day' && (
                 <p className="text-[12.5px] text-graphite-500 bg-graphite-50 rounded-xl px-3.5 py-2.5">
-                  Paid at the day rate of <span className="font-bold mono-data">{moneyExact(dailyRateFor(staffById[editing.staffId]))}</span> — no hours figure involved.
+                  Recorded as a whole day. You set what it pays when you approve it — there is no fixed day rate.
                 </p>
               )}
 
@@ -311,13 +327,18 @@ export default function ShiftApprovals() {
               <div className="flex justify-between"><span className="text-graphite-400">Time</span>
                 <span className="font-semibold mono-data">{isFullDay(approving.shift) ? '1 day' : hoursFmt(shiftHours(approving.shift))}</span>
               </div>
-              <div className="flex justify-between"><span className="text-graphite-400">Standing rate</span>
-                <span className="font-semibold mono-data">
-                  {isFullDay(approving.shift)
-                    ? `${moneyExact(dailyRateFor(staffById[approving.shift.staffId]))}/day`
-                    : `${moneyExact(rateFor(staffById[approving.shift.staffId]))}/h`}
-                </span>
-              </div>
+              {/* Only hourly work has a standing rate. A full day is priced from scratch each
+                  time, so showing a "rate" for it would misrepresent how it is paid. */}
+              {!isFullDay(approving.shift) && (
+                <div className="flex justify-between"><span className="text-graphite-400">Standing rate</span>
+                  <span className="font-semibold mono-data">{moneyExact(rateFor(staffById[approving.shift.staffId]))}/h</span>
+                </div>
+              )}
+              {approving.lastPaid != null && (
+                <div className="flex justify-between"><span className="text-graphite-400">Last full day approved</span>
+                  <span className="font-semibold mono-data">{moneyExact(approving.lastPaid)}</span>
+                </div>
+              )}
             </div>
 
             <div>
@@ -331,7 +352,9 @@ export default function ShiftApprovals() {
                 className="input-field"
               />
               <p className="text-[11.5px] text-graphite-400 mt-1.5">
-                Prefilled from the standing rate — change it if this shift is worth more or less. This exact amount is what enters the staff member&rsquo;s earnings.
+                {isFullDay(approving.shift)
+                  ? 'A full day has no fixed price — decide what this one is worth for this person. This exact amount is what enters their earnings.'
+                  : 'Prefilled from the standing hourly rate — change it if this shift is worth more or less. This exact amount is what enters their earnings.'}
               </p>
             </div>
 

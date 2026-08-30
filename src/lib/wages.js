@@ -1,7 +1,7 @@
 // Wage calculation. Every figure here is derived from shift records — hours are never stored,
 // so editing a clock-out time is enough to correct the day, week and month totals that follow
 // from it. Pure functions only, so the arithmetic is unit-testable without a backend.
-import { DEFAULT_HOURLY_RATE, DEFAULT_DAILY_RATE } from '@/data/users.js'
+import { DEFAULT_HOURLY_RATE } from '@/data/users.js'
 import { PAYABLE_SHIFT_STATUSES, MAX_SHIFT_HOURS } from '@/constants/shifts.js'
 import { periodKey, periodStart, periodLabel } from './reporting.js'
 
@@ -22,8 +22,8 @@ export function parseClock(hhmm) {
   return h * 60 + m
 }
 
-// A full day is a unit of its own: it is paid at the day rate and is never expressed as
-// hours, so it contributes zero to every hours figure and one to every day figure.
+// A full day is a unit of its own: it is never expressed as hours, so it contributes zero to
+// every hours figure and one to every day figure. What it pays is set by an admin per shift.
 export const isFullDay = (shift) => shift?.entryMode === 'full_day'
 
 // Paid minutes on an *hourly* shift:
@@ -54,33 +54,33 @@ export function rateFor(staff) {
   return Number.isFinite(rate) && rate > 0 ? rate : DEFAULT_HOURLY_RATE
 }
 
-export function dailyRateFor(staff) {
-  const rate = Number(staff?.dailyRate)
-  return Number.isFinite(rate) && rate > 0 ? rate : DEFAULT_DAILY_RATE
-}
-
-// What a shift WOULD be worth at the staff member's standing rates. This is only ever a
-// starting figure for the admin reviewing it — it is not what gets paid, and it is never
-// shown to the staff member, because rates are admin-only.
-export function suggestedPay(shift, staff) {
-  return round2(isFullDay(shift) ? dailyRateFor(staff) : shiftHours(shift) * rateFor(staff))
-}
-
-// What a shift is actually worth: the amount the admin entered and confirmed when they
-// approved it. Pay is a decision, not a derivation — an admin can pay a full day more or
-// less than the standing day rate, and that decision is what the payroll reflects.
+// What an HOURLY shift would be worth at the staff member's standing rate — a starting figure
+// for the admin reviewing it, never shown to the staff member.
 //
-// The rate-derived fallback covers rota records that predate per-shift approval amounts, so
-// historical payroll does not silently drop to zero.
+// Returns null for a full day: there is no standing day rate to derive from. What a full day
+// pays is decided by the admin at approval, and it varies by person and by occasion, so
+// offering a computed figure here would quietly turn it back into a fixed price.
+export function suggestedPay(shift, staff) {
+  if (isFullDay(shift)) return null
+  return round2(shiftHours(shift) * rateFor(staff))
+}
+
+// What a shift is actually worth: the amount the admin entered and confirmed when approving.
+// Pay is a decision, not a derivation.
+//
+// For hourly shifts the standing rate is a fallback, so rota records predating per-shift
+// amounts do not silently drop to zero. A full day has no rate to fall back to — until an
+// admin sets an amount it is worth nothing, which is correct: nobody has priced it yet.
 export function shiftWage(shift, staff) {
   // Checked for null/undefined before coercing: Number(null) is 0, not NaN, so coercing first
   // would silently pay zero for a shift that simply has no agreed amount yet.
-  if (shift?.approvedPay == null) return suggestedPay(shift, staff)
+  if (shift?.approvedPay == null) return suggestedPay(shift, staff) ?? 0
   const confirmed = Number(shift.approvedPay)
-  return Number.isFinite(confirmed) && confirmed >= 0 ? confirmed : suggestedPay(shift, staff)
+  if (Number.isFinite(confirmed) && confirmed >= 0) return confirmed
+  return suggestedPay(shift, staff) ?? 0
 }
 
-// Full days counted as days — the counterpart to shiftHours for day-rate work.
+// Full days counted as days — the counterpart to shiftHours for whole-day work.
 export const shiftFullDays = (shift) => (isFullDay(shift) ? 1 : 0)
 
 // Round money to whole pence at the point it becomes a total, not per shift — rounding each
@@ -104,7 +104,6 @@ export function summariseShifts(shifts, staff, opts = {}) {
     days,
     shifts: payable.length,
     rate: rateFor(staff),
-    dailyRate: dailyRateFor(staff),
     wage: round2(wage),
     avgHoursPerDay: hourlyDays ? round2(hours / hourlyDays) : 0,
   }

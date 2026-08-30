@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import {
-  parseClock, shiftMinutes, shiftHours, rateFor, dailyRateFor, shiftWage, suggestedPay, isFullDay,
+  parseClock, shiftMinutes, shiftHours, rateFor, shiftWage, suggestedPay, isFullDay,
   shiftFullDays, payableShifts, isPayable,
   summariseShifts, wagesByStaff, wagesByBranch, totalWages, wagesByPeriod,
 } from './wages.js'
 
-const staff = { id: 'u2', name: 'Sam', branch: 'wol', hourlyRate: 16, dailyRate: 130 }
+const staff = { id: 'u2', name: 'Sam', branch: 'wol', hourlyRate: 16 }
 // Fixtures are approved by default: an unapproved shift is worth nothing, which the
 // "approval gate" block below covers explicitly.
 const shift = (over = {}) => ({
@@ -46,10 +46,24 @@ describe('rateFor', () => {
   it('ignores a zero or negative rate', () => expect(rateFor({ hourlyRate: 0 })).toBe(12))
 })
 
-describe('dailyRateFor', () => {
-  it('uses the staff member day rate when set', () => expect(dailyRateFor(staff)).toBe(130))
-  it('falls back to the default when absent', () => expect(dailyRateFor({ id: 'u9' })).toBe(96))
-  it('ignores a zero day rate', () => expect(dailyRateFor({ dailyRate: 0 })).toBe(96))
+describe('no standing day rate', () => {
+  it('offers no suggested price for a full day — the admin sets it each time', () => {
+    expect(suggestedPay(shift({ entryMode: 'full_day' }), staff)).toBeNull()
+  })
+  it('is worth nothing until an admin prices it', () => {
+    expect(shiftWage(shift({ entryMode: 'full_day', approvedPay: null }), staff)).toBe(0)
+  })
+  it('pays two people different amounts for the same full day', () => {
+    const a = shift({ entryMode: 'full_day', approvedPay: 150 })
+    const b = shift({ entryMode: 'full_day', approvedPay: 90 })
+    expect(shiftWage(a, staff)).toBe(150)
+    expect(shiftWage(b, staff)).toBe(90)
+  })
+  it('pays the same person different amounts on different days', () => {
+    const mon = shift({ id: 'm', date: '2026-03-02', entryMode: 'full_day', approvedPay: 120 })
+    const tue = shift({ id: 't', date: '2026-03-03', at: new Date('2026-03-03T09:00:00').getTime(), entryMode: 'full_day', approvedPay: 200 })
+    expect(summariseShifts([mon, tue], staff).wage).toBe(320)
+  })
 })
 
 describe('shiftWage', () => {
@@ -162,22 +176,12 @@ describe('approval gate', () => {
 })
 
 describe('entry modes', () => {
-  it('pays a full day at the day rate, not by the hour', () => {
-    expect(shiftWage(shift({ entryMode: 'full_day' }), staff)).toBe(130)
-  })
-
   it('never converts a full day into an hours figure', () => {
     // The whole point of the mode: a full day is a day, so it contributes no hours at all,
     // and stray clock fields left over from another mode must not resurrect an hour count.
     expect(shiftHours(shift({ entryMode: 'full_day', start: '09:00', end: '17:30' }))).toBe(0)
     expect(isFullDay(shift({ entryMode: 'full_day' }))).toBe(true)
     expect(shiftFullDays(shift({ entryMode: 'full_day' }))).toBe(1)
-  })
-
-  it('pays a full day the same amount however long the day was', () => {
-    const short = shift({ entryMode: 'full_day', start: '09:00', end: '11:00' })
-    const long = shift({ entryMode: 'full_day', start: '07:00', end: '21:00' })
-    expect(shiftWage(short, staff)).toBe(shiftWage(long, staff))
   })
 
   it('uses the hours the staff member entered', () => {
@@ -200,14 +204,15 @@ describe('entry modes', () => {
 })
 
 describe('mixing day-rate and hourly shifts', () => {
-  const fullDay = shift({ id: 'fd', date: '2026-03-05', at: new Date('2026-03-05T09:00:00').getTime(), entryMode: 'full_day' })
+  // The full day carries the amount an admin agreed for it; there is no rate to derive one.
+  const fullDay = shift({ id: 'fd', date: '2026-03-05', at: new Date('2026-03-05T09:00:00').getTime(), entryMode: 'full_day', approvedPay: 130 })
 
-  it('adds a flat day rate to hourly pay without inventing hours', () => {
+  it('adds the agreed day amount to hourly pay without inventing hours', () => {
     const out = summariseShifts([shift(), fullDay], staff)
     expect(out.hours).toBe(8)        // only the hourly shift contributes hours
     expect(out.fullDays).toBe(1)
     expect(out.days).toBe(2)         // both are days worked
-    expect(out.wage).toBe(258)       // 8h * 16 + 130
+    expect(out.wage).toBe(258)       // 8h * 16 + the 130 the admin agreed
   })
 
   it('keeps the hourly average free of day-rate shifts', () => {
@@ -236,9 +241,9 @@ describe('mixing day-rate and hourly shifts', () => {
 
 describe('admin-confirmed pay', () => {
   it('pays the amount the admin agreed, not the standing rate', () => {
-    // A full day whose standing rate is GBP130 but which the admin approved at GBP150.
-    const s = shift({ entryMode: 'full_day', approvedPay: 150 })
-    expect(suggestedPay(s, staff)).toBe(130)   // what the rate would have given
+    // An hourly shift worth GBP128 at the standing rate, approved at GBP150.
+    const s = shift({ approvedPay: 150 })
+    expect(suggestedPay(s, staff)).toBe(128)   // what the rate would have given
     expect(shiftWage(s, staff)).toBe(150)      // what was actually agreed
   })
 

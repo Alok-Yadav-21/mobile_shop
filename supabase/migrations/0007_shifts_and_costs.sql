@@ -10,11 +10,13 @@
 -- Shifts (timesheets)
 -- ---------------------------------------------------------------------------------------
 
--- Two pay bases live on the profile. A shift recorded as hours or start/finish times is paid
--- at hourly_rate; one recorded as a full day is paid a flat daily_rate and is never converted
--- into an hours figure. Wages are always derived from these plus approved shifts.
+-- The standing hourly rate for time recorded as hours or start/finish times. It is only ever
+-- a starting figure shown to the admin reviewing a shift, never to the staff member.
+--
+-- There is deliberately no daily_rate column: what a full day pays is decided by an admin at
+-- approval, per person and per occasion, and lands in shifts.approved_pay. Storing a standing
+-- day rate would turn that decision back into a fixed price.
 alter table profiles add column if not exists hourly_rate numeric(6,2);
-alter table profiles add column if not exists daily_rate  numeric(7,2);
 
 create type shift_status as enum ('pending', 'approved', 'rejected');
 create type shift_entry_mode as enum ('full_day', 'hours', 'times');
@@ -243,7 +245,7 @@ create policy "stock_purchases: admin only" on stock_purchases for all
 -- ---------------------------------------------------------------------------------------
 
 create or replace view visible_pay_rates as
-select p.id, p.hourly_rate, p.daily_rate
+select p.id, p.hourly_rate
 from profiles p
 where p.id = auth.uid() or is_admin();
 

@@ -97,6 +97,8 @@ export function scopeTradeIns(actor, tradeIns) {
 export function redactUser(actor, user) {
   if (!user) return user
   if (isAdmin(actor)) return user
+  // dailyRate is destructured too: no standing day rate exists any more, but stripping it
+  // keeps any legacy record from leaking one.
   const { hourlyRate, dailyRate, ...safe } = user
   return safe
 }

@@ -5,7 +5,7 @@ import { useAsync } from '@/hooks/useAsync.js'
 import { ShiftAPI, UserAPI, BranchAPI } from '@/services/api.js'
 import { can } from '@/lib/permissions.js'
 import { rangeForLastPeriods } from '@/lib/reporting.js'
-import { wagesByStaff, wagesByBranch, wagesByPeriod, totalWages, summariseShifts, shiftHours, shiftWage, isFullDay, rateFor, dailyRateFor } from '@/lib/wages.js'
+import { wagesByStaff, wagesByBranch, wagesByPeriod, totalWages, summariseShifts, shiftHours, shiftWage, isFullDay, rateFor } from '@/lib/wages.js'
 import { PERIODS, PERIOD_LABELS } from '@/constants/finance.js'
 import { DashboardCard } from '@/components/common/DashboardCard.jsx'
 import { EmptyState } from '@/components/common/EmptyState.jsx'
@@ -148,7 +148,7 @@ export default function Wages() {
         {loading ? <div className="text-graphite-400 text-[13px] py-6">Loading rota…</div> : staffRows.length === 0 ? <EmptyState title="No staff match those filters" /> : (
           <Table>
             <thead><tr>
-              <Th>Staff</Th><Th>Rates</Th><Th>Days</Th><Th>Full days</Th><Th>Hourly time</Th><Th>Avg / day</Th><Th>Wages</Th><Th></Th>
+              <Th>Staff</Th><Th>Hourly rate</Th><Th>Days</Th><Th>Full days</Th><Th>Hourly time</Th><Th>Avg / day</Th><Th>Wages</Th><Th></Th>
             </tr></thead>
             <tbody>
               {staffRows.map((r) => (
@@ -157,7 +157,7 @@ export default function Wages() {
                     <div className="font-semibold">{r.staff.name}</div>
                     <div className="text-[11.5px] text-graphite-400">{r.staff.jobTitle || 'Staff'}</div>
                   </Td>
-                  <Td className="mono-data text-[12px]">{moneyExact(r.rate)}/h<div className="text-graphite-400">{moneyExact(r.dailyRate)}/day</div></Td>
+                  <Td className="mono-data text-[12px]">{moneyExact(r.rate)}/h</Td>
                   <Td className="mono-data">{r.days}</Td>
                   <Td className="mono-data">{r.fullDays}</Td>
                   <Td className="mono-data">{hoursFmt(r.hours)}</Td>
@@ -239,7 +239,7 @@ export default function Wages() {
               const sum = summariseShifts(mine, viewing)
               return (
                 <div className="grid grid-cols-4 gap-3 mb-4">
-                  {[['Rates', `${moneyExact(sum.rate)}/h · ${moneyExact(sum.dailyRate)}/day`], ['Days', sum.days], ['Hourly time', hoursFmt(sum.hours)], ['Wages', moneyExact(sum.wage)]].map(([k, v]) => (
+                  {[['Hourly rate', `${moneyExact(sum.rate)}/h`], ['Days', sum.days], ['Hourly time', hoursFmt(sum.hours)], ['Wages', moneyExact(sum.wage)]].map(([k, v]) => (
                     <div key={k} className="bg-graphite-50 rounded-xl px-3 py-2.5">
                       <div className="text-[10.5px] uppercase tracking-wide text-graphite-400 font-bold">{k}</div>
                       <div className="font-extrabold mono-data text-[15px]">{v}</div>
