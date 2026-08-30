@@ -1,33 +1,33 @@
 import { HeroSection } from '@/components/sections/HeroSection.jsx'
-import { StatStrip } from '@/components/sections/StatStrip.jsx'
-import { ServicesBento } from '@/components/sections/ServicesBento.jsx'
-import { HowItWorks } from '@/components/sections/HowItWorks.jsx'
-import { DiagnosticsSpotlight } from '@/components/sections/DiagnosticsSpotlight.jsx'
-import { BranchNetwork } from '@/components/sections/BranchNetwork.jsx'
-import { TradeInSection } from '@/components/sections/TradeInSection.jsx'
-import { RefurbishedSpotlight } from '@/components/sections/RefurbishedSpotlight.jsx'
+import { CategoryBlocks } from '@/components/sections/CategoryBlocks.jsx'
+import { PromiseStrip, PromoBanner, PromoBannerSecondary } from '@/components/sections/PromoBanner.jsx'
 import { FeaturedProducts } from '@/components/sections/FeaturedProducts.jsx'
-import { WarrantyTrust } from '@/components/sections/WarrantyTrust.jsx'
+import { HowItWorks } from '@/components/sections/HowItWorks.jsx'
+import { BranchNetwork } from '@/components/sections/BranchNetwork.jsx'
 import { Testimonials } from '@/components/sections/Testimonials.jsx'
-import { StatsBand } from '@/components/sections/StatsBand.jsx'
 import { FaqSection } from '@/components/sections/FaqSection.jsx'
-import { CTASection } from '@/components/sections/CTASection.jsx'
 
-export default function Home(){
-  return (<>
-    <HeroSection/>
-    <StatStrip/>
-    <ServicesBento/>
-    <HowItWorks/>
-    <DiagnosticsSpotlight/>
-    <BranchNetwork/>
-    <TradeInSection/>
-    <RefurbishedSpotlight/>
-    <FeaturedProducts/>
-    <WarrantyTrust/>
-    <Testimonials/>
-    <StatsBand/>
-    <FaqSection/>
-    <CTASection/>
-  </>)
+// Rebuilt to the reference layout: light throughout, colour blocks carrying the categories,
+// and promo slabs breaking up the product runs.
+//
+// The old page stacked fourteen sections of the same shape — hero, then card grid, then card
+// grid — which is what made it read as a template. This alternates block types instead, and
+// drops the sections that were repeating something already said (StatStrip, StatsBand,
+// ServicesBento, DiagnosticsSpotlight, RefurbishedSpotlight, TradeInSection, WarrantyTrust,
+// CTASection). Those components still exist and are used by the pages they belong to.
+export default function Home() {
+  return (
+    <>
+      <HeroSection />
+      <CategoryBlocks />
+      <PromiseStrip />
+      <PromoBanner />
+      <FeaturedProducts />
+      <PromoBannerSecondary />
+      <HowItWorks />
+      <BranchNetwork />
+      <Testimonials />
+      <FaqSection />
+    </>
+  )
 }
