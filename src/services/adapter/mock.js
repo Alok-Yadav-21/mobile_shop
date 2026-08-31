@@ -343,14 +343,37 @@ export const ProductAPI = {
 
     return { ...p, branchQuantity: (row ? row.quantity : delta) }
   },
+  // Setting a branch's count to an absolute figure — a stock count, rather than a movement.
+  //
+  // The network total is corrected by the same delta. Writing the branch row alone let the
+  // per-branch allocation drift away from p.stock, so the branch view and the reports built
+  // on the total quietly disagreed about the same product.
   async setBranchStock(id, branchId, quantity) {
     await delay()
-    requireCan(currentActor(), 'manageInventory')
+    const actor = currentActor()
+    requireCan(actor, 'manageInventory')
+    requireBranchScope(actor, branchId)
+
+    const next = Math.max(0, Number(quantity) || 0)
     const list = loadJSON(KEYS.branchStock, seedBranchStock())
     const row = list.find((r) => r.productId === id && r.branchId === branchId)
-    if (row) row.quantity = quantity
-    else list.push({ productId: id, branchId, quantity })
+    const previous = row?.quantity ?? 0
+    const delta = next - previous
+    if (row) row.quantity = next
+    else list.push({ productId: id, branchId, quantity: next })
+
+    const products = loadJSON(KEYS.products, seedProducts())
+    const p = products.find((x) => x.id === id)
+    if (p) p.stock = Math.max(0, (p.stock || 0) + delta)
+
     saveJSON(KEYS.branchStock, list)
+    saveJSON(KEYS.products, products)
+
+    if (delta !== 0) {
+      const moves = loadJSON(KEYS.inventoryMoves, [])
+      moves.unshift({ id: 'im' + Date.now(), productId: id, branchId, delta, reason: 'Stock count', actorId: actor?.id ?? null, at: Date.now() })
+      saveJSON(KEYS.inventoryMoves, moves)
+    }
     return list.filter((r) => r.productId === id)
   },
   async transferStock(id, fromBranchId, toBranchId, quantity) {
