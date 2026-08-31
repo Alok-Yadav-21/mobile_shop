@@ -13,6 +13,7 @@ import { PERIODS, PERIOD_LABELS } from '@/constants/finance.js'
 import { DashboardCard } from '@/components/common/DashboardCard.jsx'
 import { EmptyState } from '@/components/common/EmptyState.jsx'
 import { SplitBar } from '@/components/common/SplitBar.jsx'
+import { RecordDeliveryDialog } from '@/components/common/RecordDeliveryDialog.jsx'
 import { Table, Th, Td } from '@/components/custom-ui/table.jsx'
 import { money0, moneyExact, hoursFmt, pct, fmtDate } from '@/utils/format.js'
 import { PoundSterling, Wrench, ShoppingBag, Banknote, CreditCard, Boxes, Users, TrendingUp, PackageX, ShieldAlert } from 'lucide-react'
@@ -38,19 +39,20 @@ const STOCK_LABEL = { sold_out: 'Sold out', low: 'Low', in_stock: 'In stock' }
 export default function Reports() {
   const { user: me } = useAuth()
   const { data: orders = [] } = useAsync(() => OrderAPI.list(), [])
-  const { data: purchases = [] } = useAsync(() => PurchaseAPI.list(), [])
+  const { data: purchases = [], refetch: refetchPurchases } = useAsync(() => PurchaseAPI.list(), [])
   const { data: shifts = [] } = useAsync(() => ShiftAPI.list(), [])
   const { data: users = [] } = useAsync(() => UserAPI.list(), [])
   // Inactive and archived branches are included deliberately: a branch that has closed
   // still traded during the window, and dropping it would make the per-branch rows stop
   // adding up to the headline total.
   const { data: branches = [] } = useAsync(() => BranchAPI.list({ includeInactive: true, includeArchived: true }), [])
-  const { data: products = [] } = useAsync(() => ProductAPI.list(), [])
-  const { data: branchStock = [] } = useAsync(() => PurchaseAPI.allBranchStock(), [])
+  const { data: products = [], refetch: refetchProducts } = useAsync(() => ProductAPI.list(), [])
+  const { data: branchStock = [], refetch: refetchBranchStock } = useAsync(() => PurchaseAPI.allBranchStock(), [])
 
   const [period, setPeriod] = useState('month')
   const [branchId, setBranchId] = useState('')   // '' = all branches
   const [tab, setTab] = useState('branches')
+  const [recording, setRecording] = useState(false)
 
   const canView = can(me?.role, 'viewFinancialReports')
 
@@ -325,7 +327,12 @@ export default function Reports() {
           </div>
 
           <div className="surface p-5 overflow-x-auto">
-            <h2 className="font-bold text-[15px] mb-4">Stock cost by branch</h2>
+            <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
+              <h2 className="font-bold text-[15px]">Stock cost by branch</h2>
+              <button onClick={() => setRecording(true)} className="btn btn-brand btn-sm rounded-full">
+                <Boxes size={15}/> Record delivery
+              </button>
+            </div>
             <Table>
               <thead><tr><Th>Branch</Th><Th>Purchase orders</Th><Th>Units</Th><Th>Cost</Th><Th>Share</Th></tr></thead>
               <tbody>
@@ -449,6 +456,16 @@ export default function Reports() {
             </Table>
           </div>
         </div>
+      )}
+
+      {recording && (
+        <RecordDeliveryDialog
+          branches={branches}
+          products={products}
+          me={me}
+          onClose={() => setRecording(false)}
+          onSaved={() => { refetchPurchases(); refetchProducts(); refetchBranchStock() }}
+        />
       )}
     </div>
   )
