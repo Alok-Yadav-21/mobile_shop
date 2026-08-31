@@ -23,15 +23,15 @@ const PILLARS = [
     icon: Wrench,
   },
   {
-    eyebrow: 'Sell it', label: 'Buy & sell', ghost: 'SELL', to: '/buy-sell', img: samsung,
+    eyebrow: 'Buy it', label: 'Shop devices', ghost: 'SHOP', to: '/products', img: samsung,
     bg: 'bg-ink-900', text: 'text-white', ghostText: 'text-white/10', span: 'sm:col-span-2',
-    desc: 'Sell a device outright or buy one from us. Honest valuations, paid the same day at any branch.',
+    desc: 'New, used and refurbished phones, laptops and audio — every one covered by the same warranty.',
     icon: ShoppingBag,
   },
   {
-    eyebrow: 'Upgrade', label: 'Trade-in', ghost: 'TRADE', to: '/trade-in', img: earpods,
+    eyebrow: 'Sell or upgrade', label: 'Sell & trade-in', ghost: 'SELL', to: '/buy-sell', img: earpods,
     bg: 'bg-sun', text: 'text-ink', ghostText: 'text-ink/10', span: 'sm:col-span-2',
-    desc: 'Put your old device toward a newer one. Instant online estimate, confirmed on inspection.',
+    desc: 'Sell outright for cash, or put your old device toward a newer one. Instant estimate, confirmed on inspection.',
     icon: ArrowLeftRight,
   },
   {

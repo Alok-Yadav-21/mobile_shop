@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { ROLES } from '@/constants/roles.js'
 import { RoleBasedRoute } from './RoleBasedRoute.jsx'
 
@@ -83,9 +83,13 @@ export default function AppRoutes(){
           <Route path="/services" element={<Services/>}/>
           <Route path="/repair-services" element={<RepairServices/>}/>
           <Route path="/buy-sell" element={<BuySell/>}/>
+          {/* Trade-in is part of the sell journey, not a page of its own. */}
+          <Route path="/trade-in" element={<Navigate to="/buy-sell" replace/>}/>
           <Route path="/refurbished" element={<Refurbished/>}/>
           <Route path="/branches" element={<Branches/>}/>
           <Route path="/products" element={<Products/>}/>
+          {/* The nav calls this "Shop", so /shop is a URL people will type. */}
+          <Route path="/shop" element={<Navigate to="/products" replace/>}/>
           <Route path="/products/:id" element={<ProductDetails/>}/>
           <Route path="/cart" element={<Cart/>}/>
           <Route path="/checkout" element={<Checkout/>}/>
