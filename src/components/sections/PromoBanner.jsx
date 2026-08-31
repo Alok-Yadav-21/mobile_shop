@@ -95,7 +95,7 @@ export function PromoBannerSecondary() {
       title="Your old device is worth something"
       body="Get an instant estimate, drop it at any branch and get paid the same day — or put it toward an upgrade."
       cta="Get an estimate"
-      to="/trade-in"
+      to="/buy-sell"
       img={samsung}
       flip
     />
