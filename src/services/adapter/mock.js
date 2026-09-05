@@ -18,7 +18,8 @@ import {
 } from '@/services/credentialStore.js'
 import { getSession } from '@/services/session.js'
 import {
-  requireAuth, requireCan, requireSelfOrAdmin, requireBranchScope, isAdmin, isStaff, isCustomer,
+  requireAuth, requireCan, requireSelfOrAdmin, requireBranchScope, requireAssignedTechnician,
+  isAdmin, isStaff, isCustomer,
   scopeRepairs, scopeOrders, scopeShifts, scopeTradeIns, scopeUsers, scopeOwned, redactUser,
   AuthzError,
 } from '@/lib/authz.js'
@@ -287,12 +288,30 @@ export const RepairAPI = {
       const { status, tech, cancellationReason, ...workshopFields } = patch
 
       if (status !== undefined && status !== r.status) {
-        // Cancelling has its own capability, so an admin can still call a repair off without
-        // being able to walk one through the workshop flow.
-        requireCan(actor, status === 'Cancelled' ? 'cancelRepair' : 'updateRepairStatus')
+        if (status === 'Cancelled') {
+          // Cancelling has its own capability, so an admin can still call a repair off without
+          // being able to walk one through the workshop flow.
+          requireCan(actor, 'cancelRepair')
+        } else {
+          requireCan(actor, 'updateRepairStatus')
+          requireAssignedTechnician(actor, r)
+
+          // A quote with no figure on it is not a quote. Sending one put "Your approval needed"
+          // in front of the customer with nothing to approve — and their only way forward was
+          // to approve an amount nobody had named, or decline it.
+          if (status === QUOTE_SENT_STATUS) {
+            const amount = workshopFields.quote !== undefined ? workshopFields.quote : r.quote
+            if (amount == null || !(Number(amount) > 0)) {
+              throw new Error('Enter the quote amount before sending it to the customer.')
+            }
+          }
+        }
       }
       // The quote, notes and everything else describing the work are the branch's record.
-      if (Object.keys(workshopFields).length > 0) requireCan(actor, 'updateRepairStatus')
+      if (Object.keys(workshopFields).length > 0) {
+        requireCan(actor, 'updateRepairStatus')
+        requireAssignedTechnician(actor, r)
+      }
       // `tech` is deliberately absent from both checks — assignment is guarded on its own below.
     }
 

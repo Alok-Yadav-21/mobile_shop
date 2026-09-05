@@ -5,6 +5,7 @@ import { useAsync } from '@/hooks/useAsync.js'
 import { RepairAPI, UserAPI } from '@/services/api.js'
 import { techniciansForBranch } from '@/lib/staff.js'
 import { canAssign, can } from '@/lib/permissions.js'
+import { QUOTE_SENT_STATUS } from '@/lib/quotes.js'
 import { REPAIR_FLOW, nextStatuses } from '@/constants/status.js'
 import { RepairTimeline } from '@/components/common/RepairTimeline.jsx'
 import { StatusBadge } from '@/components/common/StatusBadge.jsx'
@@ -19,7 +20,16 @@ export default function RepairDetails(){
   const { data:r, loading, refetch } = useAsync(()=>RepairAPI.get(ref),[ref])
   const { data:parts=[], refetch:refetchParts } = useAsync(()=>RepairAPI.listParts(ref),[ref])
   const { data:users=[] } = useAsync(()=>UserAPI.list(),[])
+  // Who may work THIS job, not just jobs in general. An unassigned repair is open to the
+  // branch — a device handed across the counter has to be booked in before an admin has given
+  // it to anyone. Once it is assigned it belongs to one person.
   const canRecordProgress = can(user?.role, 'updateRepairStatus')
+  const assignedToSomeoneElse = !!r?.tech && r.tech !== user?.id
+  const mine = canRecordProgress && !assignedToSomeoneElse
+  const hasQuote = r?.quote != null && Number(r.quote) > 0
+  const blockedReason = !canRecordProgress
+    ? 'Recorded by the branch'
+    : `Assigned to ${r?.techName || 'another technician'}`
   const [note,setNote]=useState('')
   const [part,setPart]=useState({ name:'', quantity:1, unitCost:'' })
   const [cancelling,setCancelling]=useState(false)
@@ -69,18 +79,27 @@ export default function RepairDetails(){
               progress belongs to whoever is holding the device. They see where it has got to,
               and keep the controls that are theirs: assigning it, and cancelling it. */}
           <label className="block"><span className="text-[12.5px] font-semibold text-graphite-600">Status</span>
-            {canRecordProgress ? (
+            {mine ? (
               <>
                 <select value={r.status} onChange={e=>upd({status:e.target.value})} disabled={allowedNext.length===0} className="input-field mt-1.5 disabled:opacity-50">
                   <option value={r.status}>{r.status} (current)</option>
-                  {allowedNext.map(s=><option key={s} value={s}>{s}</option>)}
+                  {allowedNext.map(s=>(
+                    // A quote cannot be put to the customer with no figure on it, so the option
+                    // says why rather than failing when picked.
+                    <option key={s} value={s} disabled={s===QUOTE_SENT_STATUS && !hasQuote}>
+                      {s}{s===QUOTE_SENT_STATUS && !hasQuote ? ' — enter a quote first' : ''}
+                    </option>
+                  ))}
                 </select>
                 {allowedNext.length===0 && <span className="text-[11px] text-graphite-400 block mt-1">No further status changes from here.</span>}
+                {allowedNext.includes(QUOTE_SENT_STATUS) && !hasQuote && (
+                  <span className="text-[11px] text-amber-600 block mt-1">Enter the quote amount below before sending it to the customer.</span>
+                )}
               </>
             ) : (
               <div className="input-field mt-1.5 flex items-center justify-between bg-graphite-50">
                 <span>{r.status}</span>
-                <span className="text-[11px] text-graphite-400">Recorded by the branch</span>
+                <span className="text-[11px] text-graphite-400">{blockedReason}</span>
               </div>
             )}
           </label>
@@ -103,12 +122,12 @@ export default function RepairDetails(){
           {/* The quote is part of the branch's record of the work, so it follows the same rule
               as progress. Notes are not — an admin adding one is a normal thing to do. */}
           <label className="block"><span className="text-[12.5px] font-semibold text-graphite-600">Quote (£)</span>
-            {canRecordProgress ? (
+            {mine ? (
               <input type="number" defaultValue={r.quote||''} onBlur={e=>upd({quote:e.target.value?Number(e.target.value):null})} placeholder="89" className="input-field mt-1.5"/>
             ) : (
               <div className="input-field mt-1.5 flex items-center justify-between bg-graphite-50">
                 <span>{r.quote!=null ? money(r.quote) : 'Not quoted yet'}</span>
-                <span className="text-[11px] text-graphite-400">Set by the branch</span>
+                <span className="text-[11px] text-graphite-400">{blockedReason}</span>
               </div>
             )}
           </label>

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   AuthzError, requireAuth, requireRole, requireCan, requireBranchScope, requireSelfOrAdmin,
+  requireAssignedTechnician,
   scopeRepairs, scopeOrders, scopeShifts, scopeUsers, scopeOwned, redactUser, isAdmin, isStaff,
 } from './authz.js'
 
@@ -225,5 +226,36 @@ describe('capability coverage for newly guarded actions', () => {
       expect(() => requireCan(customer, action)).toThrow(AuthzError)
       expect(() => requireCan(staffWol, action)).not.toThrow()
     }
+  })
+})
+
+describe('requireAssignedTechnician', () => {
+  const priya = { id: 'u4', role: 'staff', branch: 'wol' }
+  const sam = { id: 'u2', role: 'staff', branch: 'wol' }
+  const boss = { id: 'u3', role: 'admin' }
+
+  // Any staff member at the branch could advance anybody's job, so two people could move the
+  // same device in opposite directions and the history would not say who did what.
+  it('lets the assigned technician work their own job', () => {
+    expect(() => requireAssignedTechnician(priya, { tech: 'u4' })).not.toThrow()
+  })
+
+  it('refuses a colleague who was not given it', () => {
+    expect(() => requireAssignedTechnician(sam, { tech: 'u4' })).toThrow(AuthzError)
+  })
+
+  // A device handed across the counter has to be booked in before an admin has assigned it to
+  // anyone, so an unassigned repair is open to the branch. That is the intake desk.
+  it('leaves an unassigned repair open to the branch', () => {
+    expect(() => requireAssignedTechnician(sam, { tech: null })).not.toThrow()
+    expect(() => requireAssignedTechnician(sam, {})).not.toThrow()
+  })
+
+  it('does not stand in an admin’s way', () => {
+    expect(() => requireAssignedTechnician(boss, { tech: 'u4' })).not.toThrow()
+  })
+
+  it('still requires somebody to be signed in', () => {
+    expect(() => requireAssignedTechnician(null, { tech: 'u4' })).toThrow(AuthzError)
   })
 })

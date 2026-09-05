@@ -21,10 +21,12 @@ export default function CustomerRequests(){
   const branchTradeIns = tradeIns.filter(t=>!user?.branch || t.branchId===user.branch || t.branch===user.branch)
 
   const accept = async (ref)=>{
-    await RepairAPI.update(ref,{ status:'Device received' })
-    logAction({ user, action:'repair.status_change', entityType:'repair', entityId:ref, after:{status:'Device received'} })
-    toast.success(`${ref} moved to Device received`)
-    refetchRepairs()
+    try{
+      await RepairAPI.update(ref,{ status:'Device received' })
+      logAction({ user, action:'repair.status_change', entityType:'repair', entityId:ref, after:{status:'Device received'} })
+      toast.success(`${ref} moved to Device received`)
+      refetchRepairs()
+    } catch(e){ toast.error(e.message||'Could not book that device in') }
   }
 
   const advanceTradeIn = async (t, status)=>{
@@ -47,7 +49,14 @@ export default function CustomerRequests(){
           {newBookings.map(r=>(
             <div key={r.ref} className="flex items-center justify-between px-5 py-3.5">
               <div><Link to={`/staff/repairs/${r.ref}`} className="font-bold text-[13.5px] mono-data text-brand">{r.ref}</Link><div className="text-[12.5px] text-graphite-400">{r.brand} {r.model} · {r.customer} · {fmtDateTime(r.createdAt)}</div></div>
-              <div className="flex items-center gap-3"><StatusBadge status={r.status}/><button onClick={()=>accept(r.ref)} className="btn btn-brand btn-sm">Mark received</button></div>
+              <div className="flex items-center gap-3">
+                <StatusBadge status={r.status}/>
+                {/* Booking a device in is open while nobody holds the repair — that is the
+                    counter. Once an admin has assigned it, it is that technician's to move. */}
+                {(!r.tech || r.tech===user?.id)
+                  ? <button onClick={()=>accept(r.ref)} className="btn btn-brand btn-sm">Mark received</button>
+                  : <span className="text-[11.5px] text-graphite-400">Assigned to {r.techName}</span>}
+              </div>
             </div>
           ))}
         </div>
