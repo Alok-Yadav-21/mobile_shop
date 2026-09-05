@@ -85,5 +85,23 @@ export function locatePostcode(postcode, branches = []) {
   if (AREA_CENTRES[code]) return { ...AREA_CENTRES[code], code }
 
   const match = branches.find((b) => outwardCode(b.pc) === code)
-  return match && Number.isFinite(match.lat) ? { lat: match.lat, lng: match.lng, code } : null
+  if (match && Number.isFinite(match.lat)) return { lat: match.lat, lng: match.lng, code }
+
+  // Unknown district, known area. BR2 is not in the table, but BR1, BR5 and BR6 are, and all
+  // of them are Bromley — so the centre of the area's known districts puts the search roughly
+  // where it belongs instead of refusing to answer. Deliberately coarse: it only has to
+  // separate branches that are miles apart, and `approximate` says so to whoever displays it.
+  const area = code.match(/^[A-Z]+/)?.[0]
+  if (!area) return null
+  const siblings = Object.entries(AREA_CENTRES)
+    .filter(([key]) => key.match(/^[A-Z]+/)?.[0] === area)
+    .map(([, centre]) => centre)
+  if (!siblings.length) return null
+
+  return {
+    lat: siblings.reduce((sum, c) => sum + c.lat, 0) / siblings.length,
+    lng: siblings.reduce((sum, c) => sum + c.lng, 0) / siblings.length,
+    code,
+    approximate: true,
+  }
 }
