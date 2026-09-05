@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  can, canManageUsers, canApprove, canRefund, canManageInventory, canManageSettings,
+  can, canManageUsers, canRefund, canManageInventory, canManageSettings,
   isOwnRecord, isOwnRepair, isStaffBranch, customerCanCancelRepair,
   isSuperAdmin, canCreateAdmin, canAssignRole, isSelf, canChangeOwnPassword,
 } from './permissions.js'
@@ -14,11 +14,17 @@ describe('can / role capability checks', () => {
     expect(canManageUsers('staff')).toBe(false)
   })
 
-  it('only admin can approve a quote on the customer\'s behalf or refund an order', () => {
-    expect(canApprove('admin')).toBe(true)
-    expect(canApprove('staff')).toBe(false)
+  it('only admin can refund an order', () => {
     expect(canRefund('admin')).toBe(true)
+    expect(canRefund('staff')).toBe(false)
     expect(canRefund('customer')).toBe(false)
+  })
+
+  // approveQuoteOnBehalf used to sit beside this. It was never wired to a button, and it
+  // contradicts the rule that only the customer answers their own quote, so it is gone rather
+  // than left as a permission granting something no screen offers.
+  it('has no capability for approving a quote on somebody else’s behalf', () => {
+    expect(can('admin', 'approveQuoteOnBehalf')).toBe(false)
   })
 
   it('staff and admin can manage inventory, customers cannot', () => {
@@ -145,5 +151,25 @@ describe('assigning a technician', () => {
   it('does not stop staff working the job they hold', () => {
     expect(can('staff', 'updateRepairStatus')).toBe(true)
     expect(can('staff', 'addCustomerNote')).toBe(true)
+  })
+})
+
+describe('recording repair progress', () => {
+  // Where a device has got to is recorded by whoever is handling it. An admin who has not
+  // touched it should not be able to say it is ready for collection; their part is deciding
+  // who works it.
+  it('belongs to the branch, not to the admin', () => {
+    expect(can('staff', 'updateRepairStatus')).toBe(true)
+    expect(can('admin', 'updateRepairStatus')).toBe(false)
+    expect(can('customer', 'updateRepairStatus')).toBe(false)
+  })
+
+  it('leaves the admin the decisions that are theirs', () => {
+    expect(can('admin', 'assignTechnician')).toBe(true)
+    // Cancelling is a commercial call, not a workshop step, and reaches head office as often
+    // as the counter.
+    expect(can('admin', 'cancelRepair')).toBe(true)
+    expect(can('admin', 'archiveRepair')).toBe(true)
+    expect(can('admin', 'viewAllRepairs')).toBe(true)
   })
 })

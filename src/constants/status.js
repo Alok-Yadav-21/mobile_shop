@@ -28,11 +28,11 @@ export const STATUS_TRANSITIONS = {
   'Awaiting device': ['Device received'],
   'Device received': ['Diagnostics'],
   'Diagnostics': ['Quote awaiting approval'],
-  // Quote awaiting approval -> Repair in progress is a real, valid edge (the customer's
-  // approve action and an admin's on-behalf approval both call RepairAPI.update with exactly
-  // this transition) — it's intentionally excluded from the staff status *dropdown* in
-  // RepairDetails.jsx so staff can't casually bypass the approval UX, but it must stay legal
-  // at the adapter level or the approve button itself would throw.
+  // Quote awaiting approval -> Repair in progress is a real, valid edge: it is the customer's
+  // own approve action calling RepairAPI.update with exactly this transition. It's excluded
+  // from the staff status *dropdown* in RepairDetails.jsx so nobody in the branch can approve a
+  // quote on the customer's behalf, but it must stay legal at the adapter level or the approve
+  // button itself would throw.
   'Quote awaiting approval': ['Repair in progress'],
   'Repair in progress': ['Parts ordered', 'Quality check'],
   'Parts ordered': ['Repair in progress'],

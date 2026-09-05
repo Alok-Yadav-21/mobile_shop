@@ -17,8 +17,13 @@ const CAPABILITIES = {
   // allowing reassignment from the job screen let staff pass work between themselves with no
   // rota decision behind it, including handing away a job assigned to them.
   assignTechnician: [ADMIN],
-  updateRepairStatus: [STAFF, ADMIN],
-  approveQuoteOnBehalf: [ADMIN],
+  // Staff only. Where a device has got to is recorded by the people handling it — an admin who
+  // has not touched it should not be able to say it is ready for collection. The admin's part
+  // in a repair is deciding who works it (assignTechnician) and reading the result.
+  updateRepairStatus: [STAFF],
+  // Cancelling is not a workshop step. It is a commercial decision that reaches head office as
+  // often as the counter — a customer rings to call it off, a branch closes, a part is
+  // discontinued — so it stays with the admin and is checked separately from progress.
   cancelRepair: [CUSTOMER, STAFF, ADMIN],
   deleteRepairDraft: [ADMIN],
   archiveRepair: [ADMIN],
@@ -94,7 +99,6 @@ export const canCreate = (role, action)=>can(role, action)
 export const canUpdate = (role, action)=>can(role, action)
 export const canDelete = (role, action)=>can(role, action)
 export const canAssign = (role)=>can(role, 'assignTechnician')
-export const canApprove = (role)=>can(role, 'approveQuoteOnBehalf')
 export const canRefund = (role)=>can(role, 'refundOrder')
 export const canManageUsers = (role)=>can(role, 'manageUsers')
 export const canManageInventory = (role)=>can(role, 'manageInventory')
