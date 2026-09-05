@@ -39,7 +39,7 @@ export default function Dashboard(){
         {reps.slice(0,4).map(r=>(
           <Link to={`/app/repairs/${r.ref}`} key={r.ref} className="flex items-center justify-between px-5 py-3.5 hover:bg-graphite-50 transition-colors">
             <div><div className="font-bold text-[13.5px] mono-data">{r.ref}</div><div className="text-[12.5px] text-graphite-400">{r.brand} {r.model} · {r.problem}</div></div>
-            <StatusBadge status={r.status}/>
+            <StatusBadge status={r.status} audience="customer"/>
           </Link>
         ))}
         {reps.length===0 && <div className="p-8 text-center text-graphite-400 text-[13.5px]">No repairs yet — <Link to="/app/book" className="text-brand font-semibold">book one</Link>.</div>}

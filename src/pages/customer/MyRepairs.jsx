@@ -8,7 +8,7 @@ import { BRANCHES } from '@/data/branches.js'
 import { StatusBadge } from '@/components/common/StatusBadge.jsx'
 import { EmptyState } from '@/components/common/EmptyState.jsx'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog.jsx'
-import { TRADE_IN_LABELS, TRADE_IN_STYLES } from '@/constants/status.js'
+import { TRADE_IN_LABELS, TRADE_IN_STYLES, customerNextStep } from '@/constants/status.js'
 import { logAction } from '@/services/auditService.js'
 import { money } from '@/utils/format.js'
 
@@ -41,8 +41,16 @@ export default function MyRepairs(){
           {reps.map(r=>{ const b=BRANCHES.find(x=>x.id===r.branch)
             return (
               <Link key={r.ref} to={`/app/repairs/${r.ref}`} className="flex items-center justify-between px-5 py-4 hover:bg-graphite-50 transition-colors">
-                <div><div className="font-bold text-[13.5px] mono-data">{r.ref}</div><div className="text-[12.5px] text-graphite-400">{r.brand} {r.model} · {r.problem} · {b?.area?.split('—')[0]}</div></div>
-                <div className="text-right"><StatusBadge status={r.status}/>{r.quote&&<div className="text-[12.5px] mono-data mt-1 font-semibold">{money(r.quote)}</div>}</div>
+                <div className="min-w-0 pr-3">
+                  <div className="font-bold text-[13.5px] mono-data">{r.ref}</div>
+                  <div className="text-[12.5px] text-graphite-400">{r.brand} {r.model} · {r.problem} · {b?.area?.split('—')[0]}</div>
+                  {/* Only ever set on the states where the customer is the one holding things
+                      up, so it reads as an instruction rather than as decoration. */}
+                  {customerNextStep(r.status) && (
+                    <div className="text-[12px] font-semibold text-brand mt-1">{customerNextStep(r.status)}</div>
+                  )}
+                </div>
+                <div className="text-right flex-none"><StatusBadge status={r.status} audience="customer"/>{r.quote&&<div className="text-[12.5px] mono-data mt-1 font-semibold">{money(r.quote)}</div>}</div>
               </Link>
             )
           })}
