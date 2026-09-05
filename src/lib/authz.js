@@ -48,6 +48,24 @@ export function requireBranchScope(actor, branchId) {
   return actor
 }
 
+// A repair is worked by the technician it was given to. Any staff member at the branch could
+// previously advance anybody's job, so two people could move the same device in opposite
+// directions and the history would not say who did what.
+//
+// The exception is a repair nobody holds yet. A device handed across the counter has to be
+// booked in before an admin has assigned it to anyone, so an unassigned repair is open to the
+// branch — that is the intake desk, not a loophole. The moment it is assigned it belongs to one
+// person.
+export function requireAssignedTechnician(actor, repair) {
+  requireAuth(actor)
+  if (isAdmin(actor)) return actor
+  if (!repair?.tech) return actor
+  if (repair.tech !== actor.id) {
+    throw new AuthzError('This repair is assigned to another technician.')
+  }
+  return actor
+}
+
 // Ownership check for records keyed by user id (shifts, orders, addresses).
 export function requireSelfOrAdmin(actor, ownerId) {
   requireAuth(actor)
