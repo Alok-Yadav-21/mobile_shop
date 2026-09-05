@@ -107,11 +107,15 @@ export function scopeShifts(actor, shifts) {
 // like there is simply no data.
 export function scopeOwned(actor, rows, requestedOwnerId, key = 'customerId') {
   requireAuth(actor)
-  if (requestedOwnerId != null) requireSelfOrAdmin(actor, requestedOwnerId)
-  if (isAdmin(actor)) {
-    return requestedOwnerId == null ? rows : rows.filter((r) => r[key] === requestedOwnerId)
+  if (requestedOwnerId != null) {
+    requireSelfOrAdmin(actor, requestedOwnerId)
+    // An admin may look up a named person's records; anyone else only their own.
+    return rows.filter((r) => r[key] === requestedOwnerId)
   }
-  // Without an explicit owner the caller gets their own rows — never the whole table.
+  // No owner named means "mine" — for an admin too. It used to hand an admin the entire table,
+  // which put every customer's private notifications in the admin's own notification bell:
+  // their unread count was the whole platform's, and the messages were addressed to somebody
+  // else. An admin who wants another account's records asks for them by id.
   return rows.filter((r) => r[key] === actor.id)
 }
 
