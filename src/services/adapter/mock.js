@@ -24,8 +24,11 @@ import {
 } from '@/lib/authz.js'
 import { customerCanCancelRepair } from '@/lib/permissions.js'
 import { locatePostcode, branchesByDistance } from '@/lib/geo.js'
+import { nextReference } from '@/lib/references.js'
 
 const delay = (ms = 250) => new Promise((r) => setTimeout(r, ms))
+
+
 
 // The caller, resolved by the data layer rather than supplied by the page. Every scoped read
 // and guarded mutation below derives the caller from here, so a component cannot widen its
@@ -108,6 +111,11 @@ export const RepairAPI = {
   // The `phone` argument is ignored: who the caller is comes from the session, and
   // scopeRepairs already narrows to their own bookings. Filtering by a phone number passed
   // in by the page would let a wrong or missing value decide what someone sees.
+  // Takes no argument on purpose: whose repairs these are is decided by the session, not by a
+  // phone number the caller hands in. Both customer pages used to pass `user.phone` with a
+  // hardcoded demo number as a fallback, which read as though an account with no phone would
+  // be shown somebody else's repairs. It never did — the argument was ignored — but a filter
+  // that looks like it is there and is not invites someone to start trusting it.
   async forCustomer() {
     await delay()
     return scopeRepairs(currentActor(), loadJSON(KEYS.repairs, REPAIRS))
@@ -127,7 +135,7 @@ export const RepairAPI = {
     await delay()
     const actor = requireAuth(currentActor())
     const list = loadJSON(KEYS.repairs, REPAIRS)
-    const ref = 'SPR-' + (4800 + list.length + 1)
+    const ref = nextReference(list, 'SPR-', 4800, 'ref')
     // A customer books only in their own name. Staff and admins may book on behalf of someone
     // at the counter, so their payload is taken as given.
     const identity = isCustomer(actor)
@@ -144,9 +152,13 @@ export const RepairAPI = {
     const list = loadJSON(KEYS.repairs, REPAIRS)
     // Resolved out of the caller's own scope, so a reference belonging to another branch or
     // another customer is simply not found rather than editable.
-    const visible = scopeRepairs(actor, list).find((x) => x.ref === ref)
-    if (!visible) return null
-    const r = list.find((x) => x.ref === ref)
+    // The authorised record IS the one written to. scopeRepairs returns references into the
+    // same array, so assigning to it updates the stored row — but looking the reference up a
+    // second time does not: if two rows ever share a reference, the permission check passes on
+    // one and the write lands on the other. Duplicate references are fixed above; this makes
+    // the two impossible to separate even if a duplicate reappears through imported data.
+    const r = scopeRepairs(actor, list).find((x) => x.ref === ref)
+    if (!r) return null
 
     // A customer may only withdraw their own booking, and only before the device is taken in.
     // Everything else about a repair is staff/admin territory.
@@ -159,9 +171,9 @@ export const RepairAPI = {
       requireCan(actor, 'updateRepairStatus')
     }
 
-    // Captured before the write: `visible` is a filtered reference to the same object as `r`,
-    // not a copy, so assigning the patch updates both and a later comparison against it would
-    // always find the status unchanged.
+    // Captured before the write: `r` is a filtered reference to the stored row, not a copy, so
+    // assigning the patch updates it in place and a later comparison against it would always
+    // find the status unchanged.
     const previousStatus = r.status
 
     if (patch.status && patch.status !== previousStatus) {
@@ -182,8 +194,7 @@ export const RepairAPI = {
     const actor = currentActor()
     requireCan(actor, 'addCustomerNote')
     const list = loadJSON(KEYS.repairs, REPAIRS)
-    if (!scopeRepairs(actor, list).some((x) => x.ref === ref)) return null
-    const r = list.find((x) => x.ref === ref)
+    const r = scopeRepairs(actor, list).find((x) => x.ref === ref)
     if (!r) return null
     r.notes.push({ ...note, at: Date.now() }); saveJSON(KEYS.repairs, list); return r
   },
@@ -567,7 +578,7 @@ export const OrderAPI = {
   async create(data) {
     await delay()
     const list = loadJSON(KEYS.orders, seedOrders())
-    const reference = 'VT-ORD-' + (10000 + list.length + 1)
+    const reference = nextReference(list, 'VT-ORD-', 10000)
     const order = { reference, status: 'paid', paymentStatus: 'test_mode', createdAt: Date.now(), ...data }
     list.unshift(order); saveJSON(KEYS.orders, list)
     for (const item of order.items || []) {
@@ -589,11 +600,9 @@ export const OrderAPI = {
     const actor = requireAuth(currentActor())
     const list = loadJSON(KEYS.orders, seedOrders())
     // Only an order the caller can actually see, and only their own unless they manage orders.
-    const visible = scopeOrders(actor, list).find((x) => x.reference === ref)
-    if (!visible) return null
-    if (!isAdmin(actor) && visible.customerId !== actor.id) requireCan(actor, 'manageOrders')
-    const o = list.find((x) => x.reference === ref)
+    const o = scopeOrders(actor, list).find((x) => x.reference === ref)
     if (!o) return null
+    if (!isAdmin(actor) && o.customerId !== actor.id) requireCan(actor, 'manageOrders')
     if (['dispatched', 'completed', 'cancelled'].includes(o.status)) throw new Error(`Order ${ref} can no longer be cancelled (status: ${o.status}).`)
     o.status = 'cancelled'; o.cancellationReason = reason
     saveJSON(KEYS.orders, list)
@@ -788,7 +797,7 @@ export const PurchaseAPI = {
     await delay()
     requireCan(currentActor(), 'viewStockCosts')
     const list = loadJSON(KEYS.purchases, seedPurchases())
-    const entry = { id: 'pur' + Date.now(), reference: 'VT-PO-' + (9000 + list.length + 1), at: Date.now(), ...data }
+    const entry = { id: 'pur' + Date.now(), reference: nextReference(list, 'VT-PO-', 9000), at: Date.now(), ...data }
     list.unshift(entry); saveJSON(KEYS.purchases, list)
     if (entry.productId && entry.quantity > 0) {
       try {
@@ -820,7 +829,7 @@ export const TradeInAPI = {
   async create(data) {
     await delay()
     const list = loadJSON(KEYS.tradeIns, [])
-    const reference = 'VT-TI-' + (3000 + list.length + 1)
+    const reference = nextReference(list, 'VT-TI-', 3000)
     const req = { reference, status: 'submitted', createdAt: Date.now(), ...data }
     list.unshift(req); saveJSON(KEYS.tradeIns, list); return req
   },

@@ -16,7 +16,7 @@ const CANCELLABLE_TRADE_IN = ['submitted','valuation_review']
 
 export default function MyRepairs(){
   const { user } = useAuth()
-  const { data:reps=[], loading } = useAsync(()=>RepairAPI.forCustomer(user?.phone||'07700 900123'),[user])
+  const { data:reps=[], loading } = useAsync(()=>RepairAPI.forCustomer(),[user])
   const { data:tradeIns=[], refetch:refetchTradeIns } = useAsync(()=>TradeInAPI.list(user?.id),[user])
   const [cancelling,setCancelling]=useState(null)
 
