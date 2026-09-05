@@ -11,6 +11,7 @@ import { ConfirmDialog } from '@/components/common/ConfirmDialog.jsx'
 import { TRADE_IN_STYLES, customerNextStep, tradeInStatusLabel, tradeInNextStep } from '@/constants/status.js'
 import { logAction } from '@/services/auditService.js'
 import { money } from '@/utils/format.js'
+import { quoteVisibleToCustomer } from '@/lib/quotes.js'
 
 const CANCELLABLE_TRADE_IN = ['submitted','valuation_review']
 
@@ -50,7 +51,7 @@ export default function MyRepairs(){
                     <div className="text-[12px] font-semibold text-brand mt-1">{customerNextStep(r.status)}</div>
                   )}
                 </div>
-                <div className="text-right flex-none"><StatusBadge status={r.status} audience="customer"/>{r.quote&&<div className="text-[12.5px] mono-data mt-1 font-semibold">{money(r.quote)}</div>}</div>
+                <div className="text-right flex-none"><StatusBadge status={r.status} audience="customer"/>{quoteVisibleToCustomer(r)&&<div className="text-[12.5px] mono-data mt-1 font-semibold">{money(r.quote)}</div>}</div>
               </Link>
             )
           })}

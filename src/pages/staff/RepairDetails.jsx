@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { useAsync } from '@/hooks/useAsync.js'
 import { RepairAPI, UserAPI } from '@/services/api.js'
 import { techniciansForBranch } from '@/lib/staff.js'
+import { canAssign } from '@/lib/permissions.js'
 import { REPAIR_FLOW, nextStatuses } from '@/constants/status.js'
 import { RepairTimeline } from '@/components/common/RepairTimeline.jsx'
 import { StatusBadge } from '@/components/common/StatusBadge.jsx'
@@ -70,11 +71,22 @@ export default function RepairDetails(){
             </select>
             {allowedNext.length===0 && <span className="text-[11px] text-graphite-400 block mt-1">No further status changes from here.</span>}
           </label>
+          {/* Reassignment is the admin's call, and the adapter enforces that regardless of what
+              is rendered here. Staff see who holds the job rather than a control that would
+              fail — a disabled dropdown reads as "ask someone", a broken one as a bug. */}
           <label className="block"><span className="text-[12.5px] font-semibold text-graphite-600">Technician</span>
-            <select value={r.tech||''} onChange={e=>upd({tech:e.target.value||null})} className="input-field mt-1.5">
-              <option value="">— unassigned —</option>
-              {techniciansForBranch(users, r.branch).map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
-            </select></label>
+            {canAssign(user?.role) ? (
+              <select value={r.tech||''} onChange={e=>upd({tech:e.target.value||null})} className="input-field mt-1.5">
+                <option value="">— unassigned —</option>
+                {techniciansForBranch(users, r.branch).map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            ) : (
+              <div className="input-field mt-1.5 flex items-center justify-between bg-graphite-50">
+                <span>{r.techName || 'Not yet assigned'}</span>
+                <span className="text-[11px] text-graphite-400">Assigned by an admin</span>
+              </div>
+            )}
+          </label>
           <label className="block"><span className="text-[12.5px] font-semibold text-graphite-600">Quote (£)</span>
             <input type="number" defaultValue={r.quote||''} onBlur={e=>upd({quote:e.target.value?Number(e.target.value):null})} placeholder="89" className="input-field mt-1.5"/></label>
           <label className="block"><span className="text-[12.5px] font-semibold text-graphite-600">Add note</span>

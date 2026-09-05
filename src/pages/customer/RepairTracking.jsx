@@ -9,6 +9,7 @@ import { RepairTimeline } from '@/components/common/RepairTimeline.jsx'
 import { ReasonDialog } from '@/components/common/ReasonDialog.jsx'
 import { customerCanCancelRepair } from '@/lib/permissions.js'
 import { customerNextStep } from '@/constants/status.js'
+import { quoteVisibleToCustomer } from '@/lib/quotes.js'
 import { logAction } from '@/services/auditService.js'
 import { BRANCHES } from '@/data/branches.js'
 import { money, fmtDateTime } from '@/utils/format.js'
@@ -24,23 +25,31 @@ export default function RepairTracking(){
   if(!r) return <div>Not found. <Link to="/app/repairs" className="text-brand">Back</Link></div>
   const b=BRANCHES.find(x=>x.id===r.branch)
 
+  // Each of these reports its own failure. Without that the approve button rejected silently:
+  // the throw was never caught, so the customer clicked, nothing happened, and no error said why.
   const approve = async ()=>{
-    await RepairAPI.update(ref,{ status:'Repair in progress' })
-    logAction({ user, action:'quote.approve', entityType:'repair', entityId:ref })
-    toast.success('Quote approved — repair starting.')
-    refetch()
+    try{
+      await RepairAPI.update(ref,{ status:'Repair in progress' })
+      logAction({ user, action:'quote.approve', entityType:'repair', entityId:ref })
+      toast.success('Quote approved — repair starting.')
+      refetch()
+    } catch(e){ toast.error(e.message||'Could not approve that quote') }
   }
   const reject = async (reason)=>{
-    await RepairAPI.update(ref,{ status:'Cancelled', cancellationReason:reason })
-    logAction({ user, action:'quote.reject', entityType:'repair', entityId:ref, reason })
-    toast.message('Quote rejected — repair cancelled.')
-    refetch()
+    try{
+      await RepairAPI.update(ref,{ status:'Cancelled', cancellationReason:reason })
+      logAction({ user, action:'quote.reject', entityType:'repair', entityId:ref, reason })
+      toast.message('Quote rejected — repair cancelled.')
+      refetch()
+    } catch(e){ toast.error(e.message||'Could not reject that quote') }
   }
   const cancel = async (reason)=>{
-    await RepairAPI.update(ref,{ status:'Cancelled', cancellationReason:reason })
-    logAction({ user, action:'repair.cancel', entityType:'repair', entityId:ref, reason })
-    toast.success('Booking cancelled.')
-    refetch()
+    try{
+      await RepairAPI.update(ref,{ status:'Cancelled', cancellationReason:reason })
+      logAction({ user, action:'repair.cancel', entityType:'repair', entityId:ref, reason })
+      toast.success('Booking cancelled.')
+      refetch()
+    } catch(e){ toast.error(e.message||'Could not cancel that booking') }
   }
 
   return (
@@ -71,7 +80,7 @@ export default function RepairTracking(){
         <div className="surface p-5"><h3 className="font-bold text-[13.5px] mb-4">Progress</h3><RepairTimeline repair={r} audience="customer"/></div>
         <div className="space-y-4">
           <div className="surface p-5"><h3 className="font-bold text-[13.5px] mb-3">Details</h3>
-            {[['Branch',b?.area?.split('—')[0]],['Fulfilment',r.fulfilment],['Technician',r.techName||'—'],['Quote',money(r.quote)],['Booked',fmtDateTime(r.createdAt)]].map(([k,v])=>(
+            {[['Branch',b?.area?.split('—')[0]],['Fulfilment',r.fulfilment],['Technician',r.techName||'—'],...(quoteVisibleToCustomer(r) ? [['Quote',money(r.quote)]] : []),['Booked',fmtDateTime(r.createdAt)]].map(([k,v])=>(
               <div key={k} className="flex justify-between py-2 border-b border-graphite-100 last:border-0 text-[13px]"><span className="text-graphite-400">{k}</span><span className="font-medium">{v}</span></div>
             ))}
           </div>

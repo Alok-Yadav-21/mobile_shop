@@ -13,7 +13,10 @@ const CAPABILITIES = {
   viewAllRepairs: [ADMIN],
   viewBranchRepairs: [STAFF, ADMIN],
   createRepairForCustomer: [STAFF, ADMIN],
-  assignTechnician: [STAFF, ADMIN],
+  // Admin only. A technician works the job they are given but does not decide who holds it:
+  // allowing reassignment from the job screen let staff pass work between themselves with no
+  // rota decision behind it, including handing away a job assigned to them.
+  assignTechnician: [ADMIN],
   updateRepairStatus: [STAFF, ADMIN],
   approveQuoteOnBehalf: [ADMIN],
   cancelRepair: [CUSTOMER, STAFF, ADMIN],

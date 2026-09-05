@@ -28,8 +28,11 @@ import {
 } from '@/constants/status.js'
 import { locatePostcode, branchesByDistance } from '@/lib/geo.js'
 import { nextReference } from '@/lib/references.js'
+import { redactUnsentQuote, QUOTE_SENT_STATUS } from '@/lib/quotes.js'
 
 const delay = (ms = 250) => new Promise((r) => setTimeout(r, ms))
+
+const formatGBP = (n) => `£${Number(n).toFixed(2).replace(/\.00$/, '')}`
 
 
 
@@ -120,9 +123,12 @@ function withTechName(repair, users) {
   const name = repair.tech ? (users.find((u) => u.id === repair.tech)?.name ?? repair.tech) : null
   return { ...repair, techName: name }
 }
-function decorateRepairs(rows) {
+function decorateRepairs(rows, actor = currentActor()) {
   const users = loadJSON(KEYS.users, seedUsers())
-  return rows.map((r) => withTechName(r, users))
+  const out = rows.map((r) => withTechName(r, users))
+  // A quote the branch has not put to the customer yet is not the customer's to see. Stripped
+  // here rather than hidden by the page, so it is absent from the response itself.
+  return isCustomer(actor) ? out.map(redactUnsentQuote) : out
 }
 
 // The account a repair belongs to, matched the same way scopeRepairs decides who may read it.
@@ -139,9 +145,15 @@ function notifyRepairCustomer(repair, status) {
   // links to. See CUSTOMER_STATUS_LABELS in constants/status.js.
   const label = customerStatusLabel(status)
   const device = [repair.brand, repair.model].filter(Boolean).join(' ') || 'device'
+  // The one status that exists for the customer to act on carries the figure they are being
+  // asked to approve — a notice saying only "your approval is needed" makes them open the app
+  // to find out what for.
+  const body = status === QUOTE_SENT_STATUS && repair.quote != null
+    ? `We have quoted ${formatGBP(repair.quote)} for your ${device}. Approve it and we will start work.`
+    : `Your ${device} repair is now "${label}".`
   notifyUser(owner.id, {
     title: `${repair.ref} — ${label}`,
-    body: `Your ${device} repair is now "${label}".`,
+    body,
     ref: repair.ref,
     link: `/app/repairs/${repair.ref}`,
   })
@@ -228,16 +240,36 @@ export const RepairAPI = {
     const r = scopeRepairs(actor, list).find((x) => x.ref === ref)
     if (!r) return null
 
-    // A customer may only withdraw their own booking, and only before the device is taken in.
-    // Everything else about a repair is staff/admin territory.
+    // What a customer may do to their own repair: withdraw it before the device is taken in,
+    // and answer a quote once one has been put to them. Everything else is staff territory.
+    //
+    // Answering a quote used to be neither. The guard admitted cancellations only, so the
+    // Approve button on the tracking page threw on every click — and Reject threw too, because
+    // a repair at "Quote awaiting approval" is past the point where withdrawing is allowed. The
+    // whole approval step was unreachable: staff sent a quote and the customer had no way to
+    // respond to it, which is the one thing that status exists for.
     if (isCustomer(actor)) {
-      const onlyCancelling = patch.status === 'Cancelled'
-        && Object.keys(patch).every((k) => ['status', 'cancellationReason'].includes(k))
-      if (!onlyCancelling) throw new Error('You can only cancel your own booking.')
-      if (!customerCanCancelRepair(r)) throw new Error('This repair can no longer be cancelled online — please call the branch.')
+      const keys = Object.keys(patch)
+      const cancelShaped = patch.status === 'Cancelled'
+        && keys.every((k) => ['status', 'cancellationReason'].includes(k))
+      const answeringQuote = r.status === QUOTE_SENT_STATUS
+
+      const approving = answeringQuote && patch.status === 'Repair in progress' && keys.every((k) => k === 'status')
+      const declining = answeringQuote && cancelShaped
+      const withdrawing = cancelShaped && customerCanCancelRepair(r)
+
+      if (!approving && !declining && !withdrawing) {
+        if (cancelShaped) throw new Error('This repair can no longer be cancelled online — please call the branch.')
+        throw new Error('You can only cancel your own booking, or answer a quote you have been sent.')
+      }
     } else {
       requireCan(actor, 'updateRepairStatus')
     }
+
+    // Who works a job is the admin's call. A technician may take a repair all the way through,
+    // but may not hand it to a colleague or take one off them — that is a rota decision, and
+    // letting it happen from the job screen means work moves with no record of who moved it.
+    if (patch.tech !== undefined && patch.tech !== r.tech) requireCan(actor, 'assignTechnician')
 
     // Captured before the write: `r` is a filtered reference to the stored row, not a copy, so
     // assigning the patch updates it in place and a later comparison against it would always
