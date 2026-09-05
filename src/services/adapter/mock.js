@@ -263,7 +263,20 @@ export const RepairAPI = {
         throw new Error('You can only cancel your own booking, or answer a quote you have been sent.')
       }
     } else {
-      requireCan(actor, 'updateRepairStatus')
+      // Checked per field rather than once for the whole patch. A single blanket check was
+      // fine only while staff and admins had identical rights over a repair; the moment they
+      // did not, it demanded the progress capability of an admin patching nothing but `tech`,
+      // and blocked the one thing an admin is supposed to do here.
+      const { status, tech, cancellationReason, ...workshopFields } = patch
+
+      if (status !== undefined && status !== r.status) {
+        // Cancelling has its own capability, so an admin can still call a repair off without
+        // being able to walk one through the workshop flow.
+        requireCan(actor, status === 'Cancelled' ? 'cancelRepair' : 'updateRepairStatus')
+      }
+      // The quote, notes and everything else describing the work are the branch's record.
+      if (Object.keys(workshopFields).length > 0) requireCan(actor, 'updateRepairStatus')
+      // `tech` is deliberately absent from both checks — assignment is guarded on its own below.
     }
 
     // Who works a job is the admin's call. A technician may take a repair all the way through,

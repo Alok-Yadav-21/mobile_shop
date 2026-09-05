@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { useAsync } from '@/hooks/useAsync.js'
 import { RepairAPI, UserAPI } from '@/services/api.js'
 import { techniciansForBranch } from '@/lib/staff.js'
-import { canAssign } from '@/lib/permissions.js'
+import { canAssign, can } from '@/lib/permissions.js'
 import { REPAIR_FLOW, nextStatuses } from '@/constants/status.js'
 import { RepairTimeline } from '@/components/common/RepairTimeline.jsx'
 import { StatusBadge } from '@/components/common/StatusBadge.jsx'
@@ -19,6 +19,7 @@ export default function RepairDetails(){
   const { data:r, loading, refetch } = useAsync(()=>RepairAPI.get(ref),[ref])
   const { data:parts=[], refetch:refetchParts } = useAsync(()=>RepairAPI.listParts(ref),[ref])
   const { data:users=[] } = useAsync(()=>UserAPI.list(),[])
+  const canRecordProgress = can(user?.role, 'updateRepairStatus')
   const [note,setNote]=useState('')
   const [part,setPart]=useState({ name:'', quantity:1, unitCost:'' })
   const [cancelling,setCancelling]=useState(false)
@@ -64,12 +65,24 @@ export default function RepairDetails(){
       <div className="grid md:grid-cols-2 gap-5 mt-6">
         <div className="surface p-5 space-y-4">
           <h3 className="font-bold text-[13.5px]">Update job</h3>
+          {/* An admin reaches this screen too (the /staff routes admit them), but recording
+              progress belongs to whoever is holding the device. They see where it has got to,
+              and keep the controls that are theirs: assigning it, and cancelling it. */}
           <label className="block"><span className="text-[12.5px] font-semibold text-graphite-600">Status</span>
-            <select value={r.status} onChange={e=>upd({status:e.target.value})} disabled={allowedNext.length===0} className="input-field mt-1.5 disabled:opacity-50">
-              <option value={r.status}>{r.status} (current)</option>
-              {allowedNext.map(s=><option key={s} value={s}>{s}</option>)}
-            </select>
-            {allowedNext.length===0 && <span className="text-[11px] text-graphite-400 block mt-1">No further status changes from here.</span>}
+            {canRecordProgress ? (
+              <>
+                <select value={r.status} onChange={e=>upd({status:e.target.value})} disabled={allowedNext.length===0} className="input-field mt-1.5 disabled:opacity-50">
+                  <option value={r.status}>{r.status} (current)</option>
+                  {allowedNext.map(s=><option key={s} value={s}>{s}</option>)}
+                </select>
+                {allowedNext.length===0 && <span className="text-[11px] text-graphite-400 block mt-1">No further status changes from here.</span>}
+              </>
+            ) : (
+              <div className="input-field mt-1.5 flex items-center justify-between bg-graphite-50">
+                <span>{r.status}</span>
+                <span className="text-[11px] text-graphite-400">Recorded by the branch</span>
+              </div>
+            )}
           </label>
           {/* Reassignment is the admin's call, and the adapter enforces that regardless of what
               is rendered here. Staff see who holds the job rather than a control that would
@@ -87,8 +100,18 @@ export default function RepairDetails(){
               </div>
             )}
           </label>
+          {/* The quote is part of the branch's record of the work, so it follows the same rule
+              as progress. Notes are not — an admin adding one is a normal thing to do. */}
           <label className="block"><span className="text-[12.5px] font-semibold text-graphite-600">Quote (£)</span>
-            <input type="number" defaultValue={r.quote||''} onBlur={e=>upd({quote:e.target.value?Number(e.target.value):null})} placeholder="89" className="input-field mt-1.5"/></label>
+            {canRecordProgress ? (
+              <input type="number" defaultValue={r.quote||''} onBlur={e=>upd({quote:e.target.value?Number(e.target.value):null})} placeholder="89" className="input-field mt-1.5"/>
+            ) : (
+              <div className="input-field mt-1.5 flex items-center justify-between bg-graphite-50">
+                <span>{r.quote!=null ? money(r.quote) : 'Not quoted yet'}</span>
+                <span className="text-[11px] text-graphite-400">Set by the branch</span>
+              </div>
+            )}
+          </label>
           <label className="block"><span className="text-[12.5px] font-semibold text-graphite-600">Add note</span>
             <div className="flex gap-2 mt-1.5"><input value={note} onChange={e=>setNote(e.target.value)} placeholder="Internal / customer note" className="input-field"/><button className="btn btn-ghost btn-sm flex-none" onClick={addNote}>Add</button></div></label>
           {!['Completed','Cancelled'].includes(r.status) && (
