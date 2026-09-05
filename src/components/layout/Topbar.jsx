@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { Bell, Search, Menu } from 'lucide-react'
+import { Bell, Search, Menu, Volume2, VolumeX } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth.js'
 import { useAsync } from '@/hooks/useAsync.js'
 import { NotificationAPI } from '@/services/api.js'
@@ -10,6 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Logo } from '@/components/common/Logo.jsx'
 import { NavList } from '@/components/layout/Sidebar.jsx'
 import { timeAgo } from '@/utils/format.js'
+import { playNotificationChime, newArrivals, isMuted, setMuted } from '@/lib/notificationSound.js'
 
 export function Topbar({ title, nav, navTitle }) {
   const { user, logout } = useAuth()
@@ -26,6 +27,26 @@ export function Topbar({ title, nav, navTitle }) {
     [user?.id],
   )
   const unread = notifications.filter((n) => !n.read)
+
+  // Something arriving while you are looking at another screen is the whole point of the bell,
+  // and a badge you are not looking at announces nothing. One Topbar serves all three
+  // workspaces, so this covers customers, staff and admins at once.
+  const seenIds = useRef(null)
+  const [muted, setMutedState] = useState(isMuted)
+  useEffect(() => {
+    const ids = new Set(notifications.map((n) => n.id))
+    // newArrivals returns nothing for the first read of the session, so opening a page with a
+    // backlog of ten unread notices does not play ten chimes at somebody.
+    if (newArrivals(seenIds.current, notifications).length > 0) playNotificationChime()
+    seenIds.current = ids
+  }, [notifications])
+
+  const toggleMuted = () => {
+    const next = !muted
+    setMuted(next); setMutedState(next)
+    // Played on unmuting so you hear what you have just turned on, and know it works.
+    if (!next) playNotificationChime()
+  }
 
   const openNotification = async (n) => {
     // Marking read must not gate the navigation: an already-read notification is still the
@@ -88,6 +109,14 @@ export function Topbar({ title, nav, navTitle }) {
           <PopoverContent align="end" className="w-80 p-0">
             <div className="px-4 py-3 border-b border-graphite-100 flex items-center justify-between">
               <span className="font-bold text-[13.5px]">Notifications</span>
+              <button
+                onClick={toggleMuted}
+                className="p-1 -m-1 rounded-lg text-graphite-400 hover:text-brand transition-colors"
+                aria-label={muted ? 'Turn notification sound on' : 'Turn notification sound off'}
+                title={muted ? 'Sound off' : 'Sound on'}
+              >
+                {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+              </button>
               {unread.length > 0 && <span className="text-[11.5px] text-brand font-semibold">{unread.length} new</span>}
             </div>
             <div className="max-h-80 overflow-y-auto">
