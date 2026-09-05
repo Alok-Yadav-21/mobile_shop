@@ -1,5 +1,9 @@
 import { motion, useReducedMotion } from 'framer-motion'
-import { REPAIR_FLOW, statusLabel } from '@/constants/status.js'
+import { journeySteps, stepState } from '@/lib/journey.js'
+import {
+  REPAIR_FLOW, REPAIR_FINISHED, REPAIR_STOPPED, statusLabel,
+  CUSTOMER_JOURNEY, customerStageIndex,
+} from '@/constants/status.js'
 import { fmtDateTime } from '@/utils/format.js'
 import { Check, X } from 'lucide-react'
 
@@ -12,26 +16,19 @@ import { Check, X } from 'lucide-react'
 // history of [state, timestamp] pairs, and endings that stop the list early — so they share one
 // component rather than one being a lesser copy of the other.
 export function JourneyTimeline({
-  flow, history = [], status, stoppedStates = [], labelFor = (s) => s, stopNote = null,
+  flow, history = [], status, stoppedStates = [], finishedStates = [],
+  labelFor = (s) => s, stopNote = null, indexOf = null, timeOf = null,
 }) {
   const reduce = useReducedMotion()
-  const cancelled = stoppedStates.includes(status)
-
-  const currentIndex = cancelled
-    // Where it got to before it stopped — the last flow state present in its history.
-    ? flow.reduce((last, s, i) => (history.some((h) => h[0] === s) ? i : last), -1)
-    : flow.indexOf(status)
-
-  // Past the stopping point there is nothing meaningful to show.
-  const steps = cancelled ? flow.slice(0, currentIndex + 1) : flow
-  const reached = Math.max(0, currentIndex)
-  const pct = steps.length > 1 ? (reached / (steps.length - 1)) * 100 : 0
+  const { steps, shownIndex, reached, pct, cancelled, finished, at } = journeySteps({
+    flow, history, status, stoppedStates, finishedStates, indexOf, timeOf,
+  })
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <span className="text-[12px] font-semibold text-graphite-500">
-          {cancelled ? labelFor(status) : `Step ${reached + 1} of ${flow.length}`}
+          {cancelled ? labelFor(status) : finished ? 'Finished' : `Step ${reached + 1} of ${steps.length}`}
         </span>
         <span className="text-[12px] text-graphite-400 mono-data">
           {cancelled ? '—' : `${Math.round(pct)}%`}
@@ -56,13 +53,9 @@ export function JourneyTimeline({
         )}
 
         {steps.map((s, i) => {
-          const isCancelPoint = cancelled && i === currentIndex
-          // One value for "this step happened", used by both the marker and the label —
-          // computing it twice let a cancelled repair show a completed dot beside a label
-          // greyed out as though the step were still in the future.
-          const done = i < currentIndex
-          const active = !cancelled && i === currentIndex
-          const h = history.find((x) => x[0] === s)
+          const { isStop: isCancelPoint, done, active } = stepState({ index: i, shownIndex, cancelled, finished })
+          // A stage covers several statuses, so its timestamp is when it was first entered.
+          const h = at(s)
 
           return (
             <motion.div
@@ -108,14 +101,41 @@ export function JourneyTimeline({
 // keeps working unchanged; `audience` decides whose vocabulary the step names are written in,
 // and defaults to the workshop's.
 export function RepairTimeline({ repair, audience = 'internal' }) {
+  const stopNote = `This repair was cancelled${repair?.cancellationReason ? ` — ${repair.cancellationReason}` : '.'}`
+
+  // The customer's timeline walks the stages, not the eleven bench states — same stored status
+  // underneath, projected. See CUSTOMER_JOURNEY in constants/status.js.
+  if (audience === 'customer') {
+    return (
+      <JourneyTimeline
+        flow={CUSTOMER_JOURNEY.map((st) => st.key)}
+        history={repair?.history ?? []}
+        status={repair?.status}
+        stoppedStates={REPAIR_STOPPED}
+        finishedStates={REPAIR_FINISHED}
+        indexOf={(key) => (typeof key === 'string' && CUSTOMER_JOURNEY.some((st) => st.key === key)
+          ? CUSTOMER_JOURNEY.findIndex((st) => st.key === key)
+          : customerStageIndex(key))}
+        timeOf={(key, history) => {
+          const stage = CUSTOMER_JOURNEY.find((st) => st.key === key)
+          // First entry into the stage: the moment the customer would say it started.
+          return history.find((h) => stage?.covers.includes(h[0])) ?? null
+        }}
+        labelFor={(key) => CUSTOMER_JOURNEY.find((st) => st.key === key)?.label(repair) ?? key}
+        stopNote={stopNote}
+      />
+    )
+  }
+
   return (
     <JourneyTimeline
       flow={REPAIR_FLOW}
       history={repair?.history ?? []}
       status={repair?.status}
-      stoppedStates={['Cancelled']}
+      stoppedStates={REPAIR_STOPPED}
+      finishedStates={REPAIR_FINISHED}
       labelFor={(s) => statusLabel(s, audience)}
-      stopNote={`This repair was cancelled${repair?.cancellationReason ? ` — ${repair.cancellationReason}` : '.'}`}
+      stopNote={stopNote}
     />
   )
 }

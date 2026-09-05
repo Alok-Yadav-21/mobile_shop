@@ -25,9 +25,11 @@ import {
 import { customerCanCancelRepair } from '@/lib/permissions.js'
 import {
   customerStatusLabel, tradeInStatusLabel, tradeInCanTransition,
+  orderStatusLabel, orderCanBeCancelled,
 } from '@/constants/status.js'
 import { locatePostcode, branchesByDistance } from '@/lib/geo.js'
 import { nextReference } from '@/lib/references.js'
+import { notifyChange } from '@/services/liveStore.js'
 import { redactUnsentQuote, QUOTE_SENT_STATUS } from '@/lib/quotes.js'
 
 const delay = (ms = 250) => new Promise((r) => setTimeout(r, ms))
@@ -47,6 +49,9 @@ function loadJSON(key, fallback) {
 }
 function saveJSON(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* storage unavailable — non-fatal in mock mode */ }
+  // Announced so screens already open pick the change up instead of showing what was true when
+  // they mounted. See src/services/liveStore.js.
+  notifyChange(key)
 }
 
 const KEYS = {
@@ -143,7 +148,9 @@ function notifyRepairCustomer(repair, status) {
   // The customer's wording, not the workshop's — the notification is the one place they are
   // told about a step without opening the app, so it has to read the same as the page it
   // links to. See CUSTOMER_STATUS_LABELS in constants/status.js.
-  const label = customerStatusLabel(status)
+  // The repair is passed so the label resolves the same way the customer's own screens do —
+  // one projection of one stored status, used by the badge, the timeline and this notice.
+  const label = customerStatusLabel(status, repair)
   const device = [repair.brand, repair.model].filter(Boolean).join(' ') || 'device'
   // The one status that exists for the customer to act on carries the figure they are being
   // asked to approve — a notice saying only "your approval is needed" makes them open the app
@@ -169,6 +176,16 @@ function notifyTradeInCustomer(tradeIn, status) {
     body: `Your ${device} sale is now "${label}".`,
     ref: tradeIn.reference,
     link: `/app/sell/${tradeIn.reference}`,
+  })
+}
+
+function notifyOrderCustomer(order, status) {
+  const label = orderStatusLabel(status, 'customer')
+  notifyUser(order.customerId, {
+    title: `${order.reference} — ${label}`,
+    body: `Your order is now "${label}".`,
+    ref: order.reference,
+    link: '/app/orders',
   })
 }
 
@@ -289,6 +306,9 @@ export const RepairAPI = {
     // find the status unchanged.
     const previousStatus = r.status
     const previousTech = r.tech
+    // Captured before the write, since the label for the collection/dispatch stage depends on
+    // the history the write is about to append to.
+    const previousCustomerLabel = customerStatusLabel(previousStatus, { ...r, history: [...(r.history || [])] })
 
     if (patch.status && patch.status !== previousStatus) {
       if (!canTransition(previousStatus, patch.status)) throw new Error(`Cannot move a repair from "${previousStatus}" to "${patch.status}".`)
@@ -300,7 +320,14 @@ export const RepairAPI = {
     // Keep the customer's view in step with the workshop's: a status change raises a
     // notification against the account that booked it, which is what makes the customer
     // dashboard reflect staff activity without anyone re-entering it.
-    if (patch.status && patch.status !== previousStatus) notifyRepairCustomer(r, patch.status)
+    // Notified when what the CUSTOMER is told changes, not on every bench transition. Parts
+    // ordered -> Quality check is two statuses and one customer stage, so it is one thing to
+    // them and no notification at all; Ready for collection -> Dispatched is one stage but a
+    // different thing to them, and comparing the label rather than the stage catches it.
+    if (patch.status && patch.status !== previousStatus
+        && customerStatusLabel(patch.status, r) !== previousCustomerLabel) {
+      notifyRepairCustomer(r, patch.status)
+    }
     // An assignment is announced to the technician for the same reason a status change is
     // announced to the customer: the person who has to act on it should not have to go
     // looking for it.
@@ -710,7 +737,14 @@ export const OrderAPI = {
     const list = loadJSON(KEYS.orders, seedOrders())
     const o = list.find((x) => x.reference === ref)
     if (!o) return null
-    o.status = status; saveJSON(KEYS.orders, list); return o
+    const previous = o.status
+    o.status = status
+    o.history = [...(o.history || []), [status, Date.now()]]
+    saveJSON(KEYS.orders, list)
+    // An order moving is as much the customer's business as a repair moving. Without this an
+    // admin marked an order dispatched and nothing reached the person waiting for it.
+    if (status !== previous) notifyOrderCustomer(o, status)
+    return o
   },
   // eligible = not yet dispatched/completed; restores stock for each line item.
   async cancel(ref, reason) {
@@ -721,9 +755,11 @@ export const OrderAPI = {
     const o = scopeOrders(actor, list).find((x) => x.reference === ref)
     if (!o) return null
     if (!isAdmin(actor) && o.customerId !== actor.id) requireCan(actor, 'manageOrders')
-    if (['dispatched', 'completed', 'cancelled'].includes(o.status)) throw new Error(`Order ${ref} can no longer be cancelled (status: ${o.status}).`)
+    if (!orderCanBeCancelled(o.status)) throw new Error(`Order ${ref} can no longer be cancelled (${orderStatusLabel(o.status, 'customer')}).`)
     o.status = 'cancelled'; o.cancellationReason = reason
+    o.history = [...(o.history || []), ['cancelled', Date.now()]]
     saveJSON(KEYS.orders, list)
+    notifyOrderCustomer(o, 'cancelled')
     for (const item of o.items || []) {
       try { await ProductAPI.adjustStock(item.productId, item.quantity, `Cancelled order ${ref}`) } catch { /* ignore */ }
     }

@@ -55,7 +55,7 @@ export default function RepairTracking(){
   return (
     <div className="max-w-3xl">
       <Link to="/app/repairs" className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-graphite-400 hover:text-brand"><ChevronLeft size={15}/> My repairs</Link>
-      <div className="flex items-center gap-3 mt-2"><h1 className="text-2xl font-extrabold tracking-tight mono-data">{r.ref}</h1><StatusBadge status={r.status} audience="customer"/></div>
+      <div className="flex items-center gap-3 mt-2"><h1 className="text-2xl font-extrabold tracking-tight mono-data">{r.ref}</h1><StatusBadge status={r.status} audience="customer" repair={r}/></div>
       <p className="text-graphite-400 mt-1">{r.brand} {r.model} · {r.problem} · {b?.area?.split('—')[0]}</p>
       {r.cancellationReason && <p className="text-[12.5px] text-rose-500 mt-1">Cancelled: {r.cancellationReason}</p>}
 
