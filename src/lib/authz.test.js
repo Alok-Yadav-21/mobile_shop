@@ -197,8 +197,16 @@ describe('scopeOwned', () => {
     expect(scopeOwned(customer, rows, 'u1').map((r) => r.id)).toEqual(['n1'])
   })
 
-  it('gives an admin the whole table, or any single owner they ask for', () => {
-    expect(scopeOwned(admin, rows)).toHaveLength(2)
+  // This used to assert that an admin asking for "mine" received the whole table, and the code
+  // did exactly that — which is how every customer's private notification ended up in the
+  // admin's own bell, with an unread count belonging to the whole platform. Asking for nobody
+  // in particular means yourself, whoever you are. An admin reads another account by naming it.
+  it('gives an admin their own rows when they name nobody', () => {
+    expect(scopeOwned(admin, rows).map((r) => r.id)).toEqual([])
+    expect(scopeOwned(admin, [...rows, { id: 'n3', customerId: 'u3' }]).map((r) => r.id)).toEqual(['n3'])
+  })
+
+  it('still lets an admin read a named account', () => {
     expect(scopeOwned(admin, rows, 'u9').map((r) => r.id)).toEqual(['n2'])
   })
 
@@ -257,5 +265,39 @@ describe('requireAssignedTechnician', () => {
 
   it('still requires somebody to be signed in', () => {
     expect(() => requireAssignedTechnician(null, { tech: 'u4' })).toThrow(AuthzError)
+  })
+})
+
+describe('scopeOwned — whose notifications land in whose bell', () => {
+  const rows = [
+    { id: 'n1', customerId: 'u1', title: "customer's" },
+    { id: 'n2', customerId: 'u2', title: "staff's" },
+    { id: 'n3', customerId: 'u3', title: "admin's" },
+  ]
+
+  // The leak: asking for "mine" handed an admin the whole table, so every customer's private
+  // notification appeared in the admin's own bell and their unread count was the platform's.
+  it('gives an admin their own rows, not everybody’s', () => {
+    const mine = scopeOwned(admin, rows)
+    expect(mine.map((r) => r.id)).toEqual(['n3'])
+  })
+
+  it('gives staff and customers their own', () => {
+    expect(scopeOwned(staffWol, rows).map((r) => r.id)).toEqual(['n2'])
+    expect(scopeOwned(customer, rows).map((r) => r.id)).toEqual(['n1'])
+  })
+
+  // An admin can still look somebody up — by asking for them by name.
+  it('lets an admin read a named account’s rows', () => {
+    expect(scopeOwned(admin, rows, 'u1').map((r) => r.id)).toEqual(['n1'])
+  })
+
+  it('refuses anyone else asking for somebody else’s', () => {
+    expect(() => scopeOwned(staffWol, rows, 'u1')).toThrow(AuthzError)
+    expect(() => scopeOwned(customer, rows, 'u2')).toThrow(AuthzError)
+  })
+
+  it('lets a caller name themselves without it meaning anything different', () => {
+    expect(scopeOwned(customer, rows, 'u1').map((r) => r.id)).toEqual(['n1'])
   })
 })

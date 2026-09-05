@@ -190,6 +190,30 @@ function notifyOrderCustomer(order, status) {
   })
 }
 
+// Everyone the business runs through. Notifications only ever travelled outward to customers,
+// so nothing told the shop that work had come in: an order, a booking and a sell request could
+// all arrive and the only way to find out was to keep reloading a list.
+function activeUsers() {
+  return loadJSON(KEYS.users, seedUsers())
+    .filter((u) => !u.archived && (u.status ?? 'active') === 'active')
+}
+
+// `except` is whoever caused the event — a staff member booking a walk-in should not be told
+// about their own booking.
+function notifyAdmins(payload, except = null) {
+  for (const u of activeUsers()) {
+    if (u.role === 'admin' && u.id !== except) notifyUser(u.id, payload)
+  }
+}
+
+// Scoped to the branch that has to do the work, so a booking in Woolwich does not buzz all eight.
+function notifyBranchStaff(branchId, payload, except = null) {
+  if (!branchId) return
+  for (const u of activeUsers()) {
+    if (u.role === 'staff' && u.branch === branchId && u.id !== except) notifyUser(u.id, payload)
+  }
+}
+
 // Told to the technician, not only recorded on the repair: an assignment the assignee never
 // sees is not an assignment.
 function notifyTechnicianAssigned(repair, staffId) {
@@ -240,7 +264,21 @@ export const RepairAPI = {
       ? { customer: data.customer || actor.name, email: actor.email, phone: data.phone || actor.phone }
       : {}
     const rep = { ref, status: 'Booking received', quote: null, tech: null, createdAt: Date.now(), history: [['Booking received', Date.now()]], notes: [], ...data, ...identity }
-    list.unshift(rep); saveJSON(KEYS.repairs, list); return rep
+    list.unshift(rep); saveJSON(KEYS.repairs, list)
+
+    const device = [rep.brand, rep.model].filter(Boolean).join(' ') || 'device'
+    // The branch works it; the admin assigns it. Both need to know it is there.
+    notifyBranchStaff(rep.branch, {
+      title: `${ref} — new booking`,
+      body: `${device} · ${rep.problem || 'repair'} · ${rep.customer || 'customer'}.`,
+      ref, link: `/staff/repairs/${ref}`,
+    }, actor.id)
+    notifyAdmins({
+      title: `${ref} — new booking`,
+      body: `${device} · ${rep.problem || 'repair'} · needs a technician.`,
+      ref, link: '/admin/assign',
+    }, actor.id)
+    return rep
   },
   // status must be a valid transition from the repair's current status (see constants/status.js);
   // transitions to Cancelled require a reason. Throws rather than silently applying an invalid change.
@@ -745,6 +783,13 @@ export const OrderAPI = {
     const reference = nextReference(list, 'VT-ORD-', 10000)
     const order = { reference, status: 'paid', paymentStatus: 'test_mode', createdAt: Date.now(), ...data }
     list.unshift(order); saveJSON(KEYS.orders, list)
+    // Orders are an admin responsibility (manageOrders), so this is who has to act on it.
+    const count = (order.items || []).reduce((n, i) => n + (i.quantity || 1), 0)
+    notifyAdmins({
+      title: `${reference} — new order`,
+      body: `${count} item${count === 1 ? '' : 's'}, ${formatGBP(order.total || 0)}.`,
+      ref: reference, link: '/admin/orders',
+    }, currentActor()?.id)
     for (const item of order.items || []) {
       try { await ProductAPI.adjustStock(item.productId, -item.quantity, `Order ${reference}`) } catch { /* out of sync stock is non-fatal for a mock order */ }
     }
@@ -1008,6 +1053,15 @@ export const TradeInAPI = {
     const req = { reference, status: 'submitted', createdAt: Date.now(), history: [['submitted', Date.now()]], ...data }
     list.unshift(req); saveJSON(KEYS.tradeIns, list)
     notifyTradeInCustomer(req, 'submitted')
+
+    const device = [req.brand, req.model].filter(Boolean).join(' ') || 'device'
+    const inbound = {
+      title: `${reference} — device to buy`,
+      body: `${device} · ${req.conditionGrade || 'ungraded'} · guide ${formatGBP(req.indicativeValue || 0)}.`,
+      ref: reference, link: '/staff/requests',
+    }
+    notifyBranchStaff(req.branchId || req.branch, inbound, currentActor()?.id)
+    notifyAdmins({ ...inbound, link: '/admin/buysell' }, currentActor()?.id)
     return req
   },
   async update(reference, patch) {
