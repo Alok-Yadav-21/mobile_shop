@@ -3,6 +3,7 @@ import {
   REPAIR_FLOW, STATUS_STYLES, STATUS_TRANSITIONS, canTransition, requiresReason, nextStatuses,
   TRADE_IN_FLOW, TRADE_IN_LABELS, tradeInCanTransition,
   CUSTOMER_STATUS_LABELS, CUSTOMER_NEXT_STEP, customerStatusLabel, customerNextStep, statusLabel,
+  TRADE_IN_CUSTOMER_LABELS, TRADE_IN_CUSTOMER_FLOW, TRADE_IN_TERMINAL, tradeInStatusLabel,
 } from './status.js'
 
 describe('REPAIR_FLOW', () => {
@@ -128,5 +129,48 @@ describe('customer status vocabulary', () => {
   it('falls back to the raw status rather than rendering nothing', () => {
     expect(customerStatusLabel('Some future status')).toBe('Some future status')
     expect(customerNextStep('Some future status')).toBeNull()
+  })
+})
+
+describe('customer labels are written from the customer\u2019s side', () => {
+  const ALL_TRADE_IN = [...TRADE_IN_CUSTOMER_FLOW, ...TRADE_IN_TERMINAL, 'device_received']
+
+  it('covers every state a sale can reach', () => {
+    for (const s of ALL_TRADE_IN) expect(TRADE_IN_CUSTOMER_LABELS[s]).toBeTruthy()
+  })
+
+  // The mistake this catches: a status the CUSTOMER caused, described as the shop receiving
+  // something. They sent the request; they did not receive it. "Request received" also implied
+  // we already had the device, when at that point we hold nothing but a form.
+  it('never tells the customer they received what they just sent us', () => {
+    expect(TRADE_IN_CUSTOMER_LABELS.submitted).not.toMatch(/received/i)
+    expect(CUSTOMER_STATUS_LABELS['Booking received']).not.toMatch(/received/i)
+  })
+
+  // And the same error in reverse: a status WE cause, described from our side. Money leaving us
+  // is money arriving for them.
+  it('never describes our own actions from our side', () => {
+    expect(TRADE_IN_CUSTOMER_LABELS.paid).not.toMatch(/\bsent\b/i)
+    expect(TRADE_IN_CUSTOMER_LABELS.offer_sent).not.toMatch(/\bsent\b/i)
+  })
+
+  // "Device with us" is correct and stays: at that point we genuinely do hold the device, and
+  // it is phrased as where the device is rather than as an act of receiving.
+  it('still says plainly where the device is once we hold it', () => {
+    expect(TRADE_IN_CUSTOMER_LABELS.device_received).toBe('Device with us')
+    expect(CUSTOMER_STATUS_LABELS['Device received']).toBe('Device with us')
+  })
+
+  // My repairs lists both journeys on one screen, so the opening state of each has to read the
+  // same way. It did not: repairs said "Booking confirmed" and sales said "Request received".
+  it('opens both journeys in the same voice', () => {
+    const opening = [CUSTOMER_STATUS_LABELS['Booking received'], TRADE_IN_CUSTOMER_LABELS.submitted]
+    expect(opening.every((l) => /confirmed$/i.test(l))).toBe(true)
+  })
+
+  it('keeps the internal vocabulary for staff', () => {
+    expect(tradeInStatusLabel('submitted')).toBe('Submitted')
+    expect(tradeInStatusLabel('paid')).toBe('Paid')
+    expect(tradeInStatusLabel('submitted', 'customer')).toBe('Request confirmed')
   })
 })
