@@ -42,6 +42,7 @@ const MyRepairs = lazy(()=>import('@/pages/customer/MyRepairs.jsx'))
 const RepairTracking = lazy(()=>import('@/pages/customer/RepairTracking.jsx'))
 const MyOrders = lazy(()=>import('@/pages/customer/MyOrders.jsx'))
 const SellDevice = lazy(()=>import('@/pages/customer/SellDevice.jsx'))
+const TradeInTracking = lazy(()=>import('@/pages/customer/TradeInTracking.jsx'))
 const Profile = lazy(()=>import('@/pages/customer/Profile.jsx'))
 // staff
 const StDashboard = lazy(()=>import('@/pages/staff/Dashboard.jsx'))
@@ -120,6 +121,7 @@ export default function AppRoutes(){
           <Route path="repairs" element={<MyRepairs/>}/>
           <Route path="repairs/:ref" element={<RepairTracking/>}/>
           <Route path="sell" element={<SellDevice/>}/>
+          <Route path="sell/:ref" element={<TradeInTracking/>}/>
           <Route path="orders" element={<MyOrders/>}/>
           <Route path="profile" element={<Profile/>}/>
         </Route>

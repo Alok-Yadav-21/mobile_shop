@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Bell, Search, Menu } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth.js'
@@ -14,7 +14,9 @@ import { timeAgo } from '@/utils/format.js'
 export function Topbar({ title, nav, navTitle }) {
   const { user, logout } = useAuth()
   const [open, setOpen] = useState(false)
+  const [notifOpen, setNotifOpen] = useState(false)
   const reduce = useReducedMotion()
+  const navigate = useNavigate()
 
   // The data layer scopes this to the signed-in account, so the bell shows the caller's own
   // notifications and nobody else's. These are the same records a repair status change
@@ -25,9 +27,15 @@ export function Topbar({ title, nav, navTitle }) {
   )
   const unread = notifications.filter((n) => !n.read)
 
-  const markRead = async (n) => {
-    if (n.read) return
-    try { await NotificationAPI.markRead(n.id); refetch() } catch { /* non-fatal */ }
+  const openNotification = async (n) => {
+    // Marking read must not gate the navigation: an already-read notification is still the
+    // fastest way back to the repair or sale it is about.
+    if (!n.read) {
+      try { await NotificationAPI.markRead(n.id); refetch() } catch { /* non-fatal */ }
+    }
+    // Every journey notification carries where it happened, so the bell takes you to the thing
+    // that changed instead of announcing it and leaving you to find it.
+    if (n.link) { setNotifOpen(false); navigate(n.link) }
   }
 
   return (
@@ -56,7 +64,7 @@ export function Topbar({ title, nav, navTitle }) {
           <input placeholder="Search…" aria-label="Search" className="bg-transparent outline-none w-full text-ink" />
         </div>
 
-        <Popover>
+        <Popover open={notifOpen} onOpenChange={setNotifOpen}>
           <PopoverTrigger asChild>
             <button
               className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-xl border border-graphite-200 grid place-items-center text-graphite-500 hover:text-brand hover:border-brand/40 transition-colors"
@@ -89,7 +97,8 @@ export function Topbar({ title, nav, navTitle }) {
                 notifications.slice(0, 12).map((n) => (
                   <button
                     key={n.id}
-                    onClick={() => markRead(n)}
+                    onClick={() => openNotification(n)}
+                    title={n.link ? 'Open' : undefined}
                     className={`w-full text-left px-4 py-3 border-b border-graphite-100 last:border-0 hover:bg-graphite-50 transition-colors ${n.read ? '' : 'bg-brand-50/40'}`}
                   >
                     <div className="flex items-start gap-2">

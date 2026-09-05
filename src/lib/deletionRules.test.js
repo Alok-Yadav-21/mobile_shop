@@ -21,7 +21,7 @@ describe('staffDeleteBlockers / staffActiveRepairs', () => {
   const staff = { id: 's1', name: 'Sam Patel' }
   it('blocks on repair assignments, trade-in inspections and audit history', () => {
     const reasons = staffDeleteBlockers(staff, {
-      repairs: [{ tech: 'Sam Patel' }], tradeIns: [{ inspectedBy: 's1' }], auditLogs: [{ actorId: 's1' }],
+      repairs: [{ tech: 's1' }], tradeIns: [{ inspectedBy: 's1' }], auditLogs: [{ actorId: 's1' }],
     })
     expect(reasons).toHaveLength(3)
   })
@@ -30,11 +30,26 @@ describe('staffDeleteBlockers / staffActiveRepairs', () => {
   })
   it('staffActiveRepairs excludes completed/cancelled jobs', () => {
     const repairs = [
-      { tech: 'Sam Patel', status: 'Repair in progress' },
-      { tech: 'Sam Patel', status: 'Completed' },
-      { tech: 'Other Tech', status: 'Repair in progress' },
+      { tech: 's1', status: 'Repair in progress' },
+      { tech: 's1', status: 'Completed' },
+      { tech: 's2', status: 'Repair in progress' },
     ]
     expect(staffActiveRepairs(staff, repairs)).toHaveLength(1)
+  })
+
+  // These fixtures used to say `tech: 'Sam Patel'`, and passed — but nothing in the app ever
+  // wrote a full name there. The seed repairs held first names ('Priya'), TECHS offered first
+  // names, and Supabase held an id, so the guard matched in the test and never in production:
+  // a technician with live jobs could be deleted. Assignment is an account id now, and this
+  // pins it.
+  it('does not match a technician by name — assignment is an account id', () => {
+    const repairs = [{ tech: 'Sam Patel', status: 'Repair in progress' }]
+    expect(staffActiveRepairs(staff, repairs)).toHaveLength(0)
+    expect(staffDeleteBlockers(staff, { repairs })).toEqual([])
+  })
+
+  it('counts a repair assigned by id', () => {
+    expect(staffActiveRepairs(staff, [{ tech: 's1', status: 'Diagnostics' }])).toHaveLength(1)
   })
 })
 
