@@ -27,6 +27,7 @@ export const STAFF_NAV = [
   { label:'Customer requests', to:'/staff/requests', icon:ClipboardList },
   { label:'Stock tasks', to:'/staff/stock', icon:Boxes },
   { label:'My hours & pay', to:'/staff/shifts', icon:CalendarClock },
+  { label:'My account', to:'/staff/account', icon:User },
 ]
 
 export const ADMIN_NAV = [

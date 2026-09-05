@@ -24,7 +24,6 @@ const CAPABILITIES = {
   manageUsers: [ADMIN],
   manageStaff: [ADMIN],
   deleteUser: [ADMIN],
-  resetPassword: [ADMIN],
 
   // customers
   manageCustomers: [STAFF, ADMIN],
@@ -66,6 +65,13 @@ const CAPABILITIES = {
   viewOwnWages: [STAFF, ADMIN],
   viewAllWages: [ADMIN],
 
+  // sign-in details
+  // A customer and an admin own their own password outright. A staff password is issued by an
+  // admin, so staff are absent here and are granted a change per occasion instead — see
+  // canChangeOwnPassword() below, which is the only place that grant is interpreted.
+  changeOwnPassword: [CUSTOMER, ADMIN],
+  manageSignInDetails: [ADMIN],
+
   // platform
   manageSettings: [ADMIN],
   viewAuditLog: [ADMIN],
@@ -90,7 +96,23 @@ export const canRefund = (role)=>can(role, 'refundOrder')
 export const canManageUsers = (role)=>can(role, 'manageUsers')
 export const canManageInventory = (role)=>can(role, 'manageInventory')
 export const canManageSettings = (role)=>can(role, 'manageSettings')
-export const canResetPassword = (role)=>can(role, 'resetPassword')
+export const canManageSignInDetails = (role)=>can(role, 'manageSignInDetails')
+
+// May this person change their own password right now?
+//
+// Customers and admins always may. Staff may only when an admin has unlocked it for their
+// account — either by granting a change (`changeAllowed`) or by issuing a password that must
+// be replaced on first use (`mustChange`). The grant is consumed when it is used, so unlocking
+// is per occasion rather than permanent.
+//
+// `credential` is the summary from AuthAPI.signInDetails — it carries the two flags and never
+// a hash. Called from both the UI and the adapter so the rule is written once.
+export function canChangeOwnPassword(user, credential){
+  if(!user) return false
+  if(can(user.role, 'changeOwnPassword')) return true
+  if(user.role!==STAFF) return false
+  return !!(credential?.changeAllowed || credential?.mustChange)
+}
 
 // Super admin: a distinct flag on top of the admin role (not a 4th ROLES value, so route
 // guards/ROLE_HOME etc. don't need to know about it). Only a super admin may create another

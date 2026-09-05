@@ -18,6 +18,7 @@ export const TradeInAPI = Adapter.TradeInAPI
 export const ShiftAPI = Adapter.ShiftAPI
 export const PurchaseAPI = Adapter.PurchaseAPI
 export const UserAPI = Adapter.UserAPI
+export const AuthAPI = Adapter.AuthAPI
 export const NotificationAPI = Adapter.NotificationAPI
 export const AuditAPI = Adapter.AuditAPI
 export const SettingsAPI = Adapter.SettingsAPI

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   can, canManageUsers, canApprove, canRefund, canManageInventory, canManageSettings,
   isOwnRecord, isOwnRepair, isStaffBranch, customerCanCancelRepair,
-  isSuperAdmin, canCreateAdmin, canAssignRole, isSelf,
+  isSuperAdmin, canCreateAdmin, canAssignRole, isSelf, canChangeOwnPassword,
 } from './permissions.js'
 
 describe('can / role capability checks', () => {
@@ -98,5 +98,37 @@ describe('customerCanCancelRepair', () => {
     expect(customerCanCancelRepair({ status: 'Device received' })).toBe(false)
     expect(customerCanCancelRepair({ status: 'Repair in progress' })).toBe(false)
     expect(customerCanCancelRepair({ status: 'Completed' })).toBe(false)
+  })
+})
+
+// --- who may change their own password -------------------------------------------------------
+describe('canChangeOwnPassword', () => {
+  const customer = { id: 'c1', role: 'customer' }
+  const staff = { id: 's1', role: 'staff' }
+  const admin = { id: 'a1', role: 'admin' }
+
+  it('lets a customer change their own password with no grant on file', () => {
+    expect(canChangeOwnPassword(customer, { changeAllowed: false, mustChange: false })).toBe(true)
+  })
+
+  it('lets an admin change their own password with no grant on file', () => {
+    expect(canChangeOwnPassword(admin, { changeAllowed: false, mustChange: false })).toBe(true)
+  })
+
+  it('refuses a staff member until an admin unlocks it', () => {
+    expect(canChangeOwnPassword(staff, { changeAllowed: false, mustChange: false })).toBe(false)
+    expect(canChangeOwnPassword(staff, null)).toBe(false)
+  })
+
+  it('allows a staff member once an admin has unlocked it', () => {
+    expect(canChangeOwnPassword(staff, { changeAllowed: true })).toBe(true)
+  })
+
+  it('allows a staff member holding a password they are required to replace', () => {
+    expect(canChangeOwnPassword(staff, { changeAllowed: false, mustChange: true })).toBe(true)
+  })
+
+  it('refuses when there is no user at all', () => {
+    expect(canChangeOwnPassword(null, { changeAllowed: true })).toBe(false)
   })
 })

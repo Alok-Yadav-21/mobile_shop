@@ -625,13 +625,9 @@ export const UserAPI = {
     return this.update(id, { archived: true, status: 'inactive' })
   },
   async restore(id) { return this.update(id, { archived: false }) },
-  async resetPassword(id) {
-    assertConnected()
-    const user = await this.get(id)
-    const { error } = await supabase.auth.resetPasswordForEmail(user.email)
-    if (error) throw error
-    return { sent: true, email: user.email }
-  },
+  // Passwords live in AuthAPI at the foot of this file, matching ./mock.js. A "forgot my
+  // password" email would be supabase.auth.resetPasswordForEmail here, but there is no such
+  // flow in the app yet and an unreachable method is worse than none.
   async remove(id, opts = {}, actor) {
     // Supabase RLS + FK constraints govern the deactivate-vs-delete decision server-side;
     // the UI should already have decided before calling — this always deactivates for safety
@@ -853,3 +849,93 @@ export const PurchaseAPI = {
 }
 
 export const TECHS = [] // staff lookup moves to profiles (role='staff'); populate via a dedicated query once staff UI needs it.
+
+// --- authentication -------------------------------------------------------------------------
+// Same surface as AuthAPI in ./mock.js, backed by Supabase Auth. The important difference is
+// where the secret lives: here the hash never reaches the browser at all, and the checks the
+// mock adapter performs in JavaScript are performed by Postgres (supabase/migrations) against
+// auth.uid(). That is the boundary the mock adapter cannot provide — see the note in
+// src/services/session.js.
+export const AuthAPI = {
+  // One field for both, matching the mock adapter: an email goes to Supabase Auth directly, a
+  // username is resolved to its account's email first. `username` is a unique column on
+  // profiles, readable without auth precisely so that sign-in can perform this lookup.
+  async signIn({ identifier, password } = {}) {
+    assertConnected()
+    const id = String(identifier ?? '').trim()
+    if (!id || !password) throw new Error('Enter your sign-in details.')
+
+    let email = id
+    if (!id.includes('@')) {
+      const { data } = await supabase.from('profiles').select('email').eq('username', id.toLowerCase()).maybeSingle()
+      // Deliberately not an early return: an unknown username must fail the same way a wrong
+      // password does, so the form cannot be used to discover who works here.
+      email = data?.email ?? `${id.toLowerCase()}@invalid.local`
+    }
+
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) throw new Error('Those sign-in details are not recognised.')
+
+    const { data: profile } = await supabase.from('profiles').select('*').eq('id', data.user.id).single()
+    if (profile?.archived || profile?.status === 'inactive') {
+      await supabase.auth.signOut()
+      throw new Error('That account is no longer active. Please speak to your branch manager.')
+    }
+    return {
+      user: mapProfileRow(profile),
+      mustChangePassword: !!profile?.must_change_password,
+    }
+  },
+
+  // Signing up through the public client can only ever create a customer: the profiles insert
+  // trigger sets role='customer' server-side and ignores whatever the client sends, so this is
+  // not a promise the UI is keeping on its own.
+  async registerCustomer({ name, email, phone, password } = {}) {
+    assertConnected()
+    const { data, error } = await supabase.auth.signUp({
+      email: String(email ?? '').trim().toLowerCase(),
+      password,
+      options: { data: { full_name: name, phone } },
+    })
+    if (error) throw error
+    return { id: data.user?.id, name, email, phone, role: 'customer', status: 'active' }
+  },
+
+  async changeOwnPassword({ newPassword } = {}) {
+    assertConnected()
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    if (error) throw error
+    await supabase.from('profiles').update({ must_change_password: false, password_change_allowed: false })
+      .eq('id', (await supabase.auth.getUser()).data.user?.id)
+    return { changed: true }
+  },
+
+  // Setting somebody else's password needs the Admin API and the service role key, which must
+  // never be shipped to a browser. In production this calls an edge function that checks the
+  // caller is an admin and then performs the update server-side.
+  async issueCredentials() {
+    throw new Error('Issuing sign-in details requires a server-side Supabase Admin API call — not available from the browser client.')
+  },
+
+  async setPasswordChangePermission(userId, allowed) {
+    assertConnected()
+    const { error } = await supabase.from('profiles').update({ password_change_allowed: !!allowed }).eq('id', userId)
+    if (error) throw error
+    return { userId, changeAllowed: !!allowed }
+  },
+
+  async signInDetails(userId) {
+    assertConnected()
+    const { data, error } = await supabase.from('profiles')
+      .select('id, username, must_change_password, password_change_allowed').eq('id', userId).single()
+    if (error) throw error
+    return {
+      userId: data.id, username: data.username, hasPassword: true,
+      mustChange: !!data.must_change_password, changeAllowed: !!data.password_change_allowed,
+    }
+  },
+
+  async forgetCredentials() {
+    throw new Error('Removing an auth user requires a server-side Supabase Admin API call — not available from the browser client.')
+  },
+}
