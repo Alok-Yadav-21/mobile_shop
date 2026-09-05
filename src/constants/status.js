@@ -144,14 +144,24 @@ export function statusLabel(status, audience = 'internal'){
 // not: the statuses below were rendered raw, no step was announced to the customer, and the one
 // state that exists purely for them to act on — an offer — was actioned by an admin on their
 // behalf. Same treatment as repairs, so both journeys behave the same way.
+// Written from the customer's side throughout. Two of these were not, and both were the same
+// mistake made in opposite directions:
+//
+//   submitted was "Request received" — but the customer SENT the request; they did not receive
+//     anything. It was also inaccurate: at this point we hold the request and no device, so
+//     "received" invites them to think their phone has already arrived with us.
+//   paid was "Payment sent" — sent by whom? By us. From where they sit, money arrives.
+//
+// The repair side already says "Booking confirmed" for the same moment, so a customer looking
+// at My repairs, which lists both journeys on one screen, was reading two different voices.
 export const TRADE_IN_CUSTOMER_LABELS = {
-  submitted: 'Request received',
+  submitted: 'Request confirmed',
   valuation_review: 'Being valued',
   device_received: 'Device with us',
   offer_sent: 'Your offer is ready',
   offer_accepted: 'Offer accepted',
   offer_declined: 'Offer declined',
-  paid: 'Payment sent',
+  paid: 'Payment on its way',
   completed: 'Completed',
   cancelled: 'Cancelled',
 }
