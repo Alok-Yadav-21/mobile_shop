@@ -8,7 +8,7 @@ import { Wrench, ClipboardList, ShoppingBag, ArrowLeftRight, ArrowRight } from '
 
 export default function Dashboard(){
   const { user } = useAuth()
-  const { data:reps=[] } = useAsync(()=>RepairAPI.forCustomer(user?.phone||'07700 900123'), [user])
+  const { data:reps=[] } = useAsync(()=>RepairAPI.forCustomer(), [user])
   const { data:orders=[] } = useAsync(()=>OrderAPI.list(user?.id), [user])
   const active = reps.filter(r=>!['Completed','Cancelled'].includes(r.status)).length
 
