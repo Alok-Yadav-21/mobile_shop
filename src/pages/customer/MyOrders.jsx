@@ -7,9 +7,10 @@ import { OrderAPI } from '@/services/api.js'
 import { logAction } from '@/services/auditService.js'
 import { ReasonDialog } from '@/components/common/ReasonDialog.jsx'
 import { money, fmtDate } from '@/utils/format.js'
+import { orderStatusLabel, orderCanBeCancelled, ORDER_STYLES } from '@/constants/status.js'
 import { ShoppingBag } from 'lucide-react'
 
-const CANCELLABLE = ['pending','paid','processing']
+// One rule, shared with the adapter and the admin list — see orderCanBeCancelled().
 
 export default function MyOrders(){
   const { user } = useAuth()
@@ -49,9 +50,12 @@ export default function MyOrders(){
               <div className="text-right flex items-center gap-4">
                 <div>
                   <div className="font-bold text-[14.5px] mono-data">{money(o.total)}</div>
-                  <div className={`text-[11px] font-semibold mt-0.5 ${o.status==='cancelled'?'text-rose-500':'text-amber-600'}`}>{o.status==='cancelled'?'Cancelled':'Test mode'}</div>
+                  {/* Was hardcoded to "Test mode" — a note about the payment stub — for every
+                      order that was not cancelled, so an admin marking one dispatched changed
+                      nothing here. It shows the order's actual status now. */}
+                  <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded-full mt-1 ${ORDER_STYLES[o.status]||'bg-slate-100 text-slate-600'}`}>{orderStatusLabel(o.status,'customer')}</span>
                 </div>
-                {CANCELLABLE.includes(o.status) && <button onClick={()=>setCancelling(o)} className="text-[12px] font-semibold text-rose-600 hover:underline">Cancel</button>}
+                {orderCanBeCancelled(o.status) && <button onClick={()=>setCancelling(o)} className="text-[12px] font-semibold text-rose-600 hover:underline">Cancel</button>}
               </div>
             </div>
           ))}

@@ -9,8 +9,11 @@ import { ReasonDialog } from '@/components/common/ReasonDialog.jsx'
 import { Table, Th, Td } from '@/components/custom-ui/table.jsx'
 import { EmptyState } from '@/components/common/EmptyState.jsx'
 import { money, fmtDate } from '@/utils/format.js'
+import { ORDER_FLOW, orderCanBeCancelled, orderStatusLabel } from '@/constants/status.js'
 
-const ORDER_STATUSES = ['pending','paid','processing','ready','dispatched','delivered','collected']
+// Was a private copy of the vocabulary; it now comes from constants/status.js so the customer
+// list, the admin list and the adapter cannot drift apart.
+const ORDER_STATUSES = ORDER_FLOW
 
 export default function ManageOrders(){
   const { user:me } = useAuth()
@@ -57,7 +60,7 @@ export default function ManageOrders(){
                 )}
               </Td>
               <Td>{fmtDate(o.createdAt)}</Td>
-              {canManage && <Td>{!['dispatched','completed','collected','delivered','cancelled'].includes(o.status) && <button onClick={()=>setCancelling(o)} className="text-[12px] font-semibold text-rose-600 hover:underline">Cancel</button>}</Td>}
+              {canManage && <Td>{orderCanBeCancelled(o.status) && <button onClick={()=>setCancelling(o)} className="text-[12px] font-semibold text-rose-600 hover:underline">Cancel</button>}</Td>}
             </tr>))}</tbody></Table>
         </div>
       )}

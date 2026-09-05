@@ -51,7 +51,7 @@ export default function MyRepairs(){
                     <div className="text-[12px] font-semibold text-brand mt-1">{customerNextStep(r.status)}</div>
                   )}
                 </div>
-                <div className="text-right flex-none"><StatusBadge status={r.status} audience="customer"/>{quoteVisibleToCustomer(r)&&<div className="text-[12.5px] mono-data mt-1 font-semibold">{money(r.quote)}</div>}</div>
+                <div className="text-right flex-none"><StatusBadge status={r.status} audience="customer" repair={r}/>{quoteVisibleToCustomer(r)&&<div className="text-[12.5px] mono-data mt-1 font-semibold">{money(r.quote)}</div>}</div>
               </Link>
             )
           })}

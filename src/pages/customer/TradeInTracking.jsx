@@ -85,6 +85,7 @@ export default function TradeInTracking(){
             history={t.history ?? []}
             status={status}
             stoppedStates={TRADE_IN_TERMINAL}
+            finishedStates={['completed']}
             labelFor={(s)=>tradeInStatusLabel(s,'customer')}
             stopNote={status==='offer_declined'
               ? `You declined this offer${t.rejectionReason?` — ${t.rejectionReason}`:'.'}`
