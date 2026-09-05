@@ -5,21 +5,23 @@ import { z } from 'zod'
 import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth.js'
 import { useAsync } from '@/hooks/useAsync.js'
-import { UserAPI, RepairAPI, TradeInAPI, AuditAPI } from '@/services/api.js'
+import { UserAPI, RepairAPI, TradeInAPI, AuditAPI, AuthAPI } from '@/services/api.js'
 import { BRANCHES } from '@/data/branches.js'
-import { canManageUsers, canResetPassword, isSelf } from '@/lib/permissions.js'
+import { canManageUsers, canManageSignInDetails, isSelf } from '@/lib/permissions.js'
+import { suggestPassword, normaliseUsername } from '@/lib/password.js'
 import { staffDeleteBlockers, staffActiveRepairs } from '@/lib/deletionRules.js'
 import { logAction } from '@/services/auditService.js'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog.jsx'
 import { ReasonDialog } from '@/components/common/ReasonDialog.jsx'
 import { StatusPill } from '@/components/common/AccountStatusBadge.jsx'
 import { RowActionsMenu } from '@/components/common/RowActionsMenu.jsx'
+import { SignInDetailsDialog } from '@/components/common/SignInDetailsDialog.jsx'
 import { TableSkeleton } from '@/components/common/TableSkeleton.jsx'
 import { ErrorState } from '@/components/common/ErrorState.jsx'
 import { EmptyState } from '@/components/common/EmptyState.jsx'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog.jsx'
 import { Table, Th, Td } from '@/components/custom-ui/table.jsx'
-import { Search, Plus, Eye, Pencil, KeyRound, UserCheck, UserX, Trash2, Archive, ArchiveRestore, MapPin, Briefcase, AlertTriangle } from 'lucide-react'
+import { Search, Plus, Eye, Pencil, KeyRound, RefreshCw, UserCheck, UserX, Trash2, Archive, ArchiveRestore, MapPin, Briefcase, AlertTriangle } from 'lucide-react'
 
 const PAGE_SIZE = 8
 const SPECIALISATIONS = ['Phones','Laptops','MacBooks','Tablets','Audio','Wearables']
@@ -32,6 +34,11 @@ const schema = z.object({
   branch: z.string().min(1,'Choose a branch'),
   jobTitle: z.string().optional(),
   branchManager: z.boolean().optional(),
+  // Only meaningful when creating: a new staff account needs sign-in details or nobody can
+  // use it. Editing an existing account leaves these blank and manages them from the
+  // Sign-in details dialog instead, so a routine edit can never silently reset a password.
+  username: z.string().optional(),
+  password: z.string().optional(),
 })
 
 export default function ManageStaff(){
@@ -41,7 +48,7 @@ export default function ManageStaff(){
   const { data:tradeIns=[] } = useAsync(()=>TradeInAPI.list(),[])
   const { data:auditLogs=[] } = useAsync(()=>AuditAPI.list(),[])
   const canManage = canManageUsers(me?.role)
-  const canReset = canResetPassword(me?.role)
+  const canManageSignIn = canManageSignInDetails(me?.role)
 
   const [q,setQ]=useState(''); const [branchFilter,setBranchFilter]=useState(''); const [statusFilter,setStatusFilter]=useState('')
   const [page,setPage]=useState(1)
@@ -50,6 +57,7 @@ export default function ManageStaff(){
   const [workloadFor,setWorkloadFor]=useState(null)
   const [target,setTarget]=useState(null) // {type, staff}
   const [deactivating,setDeactivating]=useState(null) // staff pending deactivation (may need reassignment)
+  const [credentialsFor,setCredentialsFor]=useState(null) // staff whose sign-in details are open
 
   const staff = users.filter(u=>u.role==='staff')
   const list = useMemo(()=>staff.filter(s=>{
@@ -65,10 +73,16 @@ export default function ManageStaff(){
   const pageItems = list.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE)
   const goToPage = (p)=>setPage(Math.min(Math.max(1,p),totalPages))
 
-  const { register, handleSubmit, reset, formState:{ errors } } = useForm({ resolver: zodResolver(schema) })
+  const { register, handleSubmit, reset, watch, setValue, formState:{ errors } } = useForm({ resolver: zodResolver(schema) })
 
-  const openCreate = ()=>{ reset({ name:'', email:'', phone:'', branch:BRANCHES[0].id, jobTitle:'', branchManager:false }); setEditing({ specialisations:[] }) }
-  const openEdit = (s)=>{ reset({ name:s.name, email:s.email, phone:s.phone||'', branch:s.branch||'', jobTitle:s.jobTitle||'', branchManager:!!s.branchManager }); setEditing(s) }
+  // A starting password is generated rather than left to be typed, because the alternative in
+  // practice is the same memorable word for every new starter.
+  const openCreate = ()=>{ reset({ name:'', email:'', phone:'', branch:BRANCHES[0].id, jobTitle:'', branchManager:false, username:'', password:suggestPassword() }); setEditing({ specialisations:[] }) }
+  const openEdit = (s)=>{ reset({ name:s.name, email:s.email, phone:s.phone||'', branch:s.branch||'', jobTitle:s.jobTitle||'', branchManager:!!s.branchManager, username:'', password:'' }); setEditing(s) }
+  const suggestUsername = ()=>{
+    const parts = String(watch('name')||'').trim().toLowerCase().split(/\s+/).filter(Boolean)
+    if(parts.length) setValue('username', normaliseUsername(parts.slice(0,2).join('.')))
+  }
   const [specSelection,setSpecSelection]=useState([])
   const toggleSpec = (v)=>setSpecSelection(sel=>sel.includes(v)?sel.filter(x=>x!==v):[...sel,v])
 
@@ -82,9 +96,21 @@ export default function ManageStaff(){
         logAction({ user:me, action:'staff.update', entityType:'user', entityId:editing.id, after:updated })
         toast.success('Staff account updated')
       } else {
-        const created = await UserAPI.create({ ...payload, role:'staff' }, me)
+        if(!data.username?.trim()) { toast.error('Give this account a username — staff sign in with one, not an email.'); return }
+        if(!data.password?.trim()) { toast.error('Set a starting password for this account.'); return }
+        const { username, password, ...profile } = payload
+        const created = await UserAPI.create({ ...profile, role:'staff' }, me)
+        // Sign-in details are issued straight after the account, so a staff record can never
+        // sit in the list looking usable while having no way to sign in. mustChange is on:
+        // the admin knows this password, so the holder replaces it on first use.
+        try{
+          await AuthAPI.issueCredentials(created.id, { username: username.trim(), password: password.trim(), mustChange:true })
+        }catch(credErr){
+          toast.error(`Account created, but its sign-in details were not: ${credErr.message}`)
+          setEditing(null); refetch(); setCredentialsFor(created); return
+        }
         logAction({ user:me, action:'staff.create', entityType:'user', entityId:created.id, after:created })
-        toast.success('Staff account created')
+        toast.success(`Staff account created — username ${username.trim()}`)
       }
       setEditing(null); refetch()
     } catch(e){ toast.error(e.message||'Could not save staff account') }
@@ -112,10 +138,6 @@ export default function ManageStaff(){
         await UserAPI.restore(s.id)
         logAction({ user:me, action:'user.restore', entityType:'user', entityId:s.id })
         toast.success(`${s.name} restored`)
-      } else if(type==='reset'){
-        const result = await UserAPI.resetPassword(s.id)
-        logAction({ user:me, action:'user.password_reset_triggered', entityType:'user', entityId:s.id })
-        toast.success(`Password reset link sent to ${result.email}`)
       } else if(type==='activate'){
         await UserAPI.setStatus(s.id, 'active', me)
         logAction({ user:me, action:'user.status_change', entityType:'user', entityId:s.id, after:{status:'active'} })
@@ -151,7 +173,7 @@ export default function ManageStaff(){
       { key:'view', label:'View staff', icon:Eye, onClick:()=>setViewing(s) },
       { key:'edit', label:'Edit staff', icon:Pencil, onClick:()=>{ openEdit(s); setSpecSelection(s.specialisations||[]) }, hidden:!!s.archived },
       { key:'workload', label:'View workload', icon:Briefcase, onClick:()=>setWorkloadFor(s) },
-      { key:'reset', label:'Reset password', icon:KeyRound, onClick:()=>setTarget({type:'reset',staff:s}), hidden:!canReset||!!s.archived },
+      { key:'signin', label:'Sign-in details', icon:KeyRound, onClick:()=>setCredentialsFor(s), hidden:!canManageSignIn||!!s.archived },
       'separator',
       active
         ? { key:'deactivate', label:'Deactivate', icon:UserX, tone:'amber', onClick:()=>startDeactivate(s), disabled:self, disabledReason:self?"Can't deactivate yourself":undefined, hidden:!!s.archived }
@@ -239,6 +261,32 @@ export default function ManageStaff(){
               </div>
             </div>
             <label className="flex items-center gap-2.5"><input type="checkbox" {...register('branchManager')}/><span className="text-[12.5px] font-semibold text-graphite-600">Branch manager permissions</span></label>
+
+            {/* Sign-in details, only when creating. Staff are issued a username and a starting
+                password here — an existing account's details are changed from the Sign-in
+                details dialog, so editing a job title can never reset somebody's password. */}
+            {!editing?.id && (
+              <div className="border-t border-graphite-100 pt-3.5">
+                <div className="text-[12.5px] font-semibold text-graphite-600">Sign-in details</div>
+                <p className="text-[11.5px] text-graphite-400 mt-0.5 mb-2.5">
+                  They sign in with this username, not their email. They will be asked to set
+                  their own password the first time — until then, you know it too.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block"><span className="text-[12.5px] font-semibold text-graphite-600">Username</span>
+                    <div className="flex gap-2 mt-1.5">
+                      <input {...register('username')} placeholder="priya.shah" className="input-field flex-1"/>
+                      <button type="button" onClick={suggestUsername} className="btn btn-ghost btn-sm flex-none">From name</button>
+                    </div></label>
+                  <label className="block"><span className="text-[12.5px] font-semibold text-graphite-600">Starting password</span>
+                    <div className="flex gap-2 mt-1.5">
+                      <input {...register('password')} className="input-field flex-1 mono-data"/>
+                      <button type="button" onClick={()=>setValue('password', suggestPassword())} title="Generate another" className="btn btn-ghost btn-sm flex-none"><RefreshCw size={14}/></button>
+                    </div></label>
+                </div>
+              </div>
+            )}
+
             <DialogFooter>
               <button type="button" onClick={()=>setEditing(null)} className="btn btn-ghost">Cancel</button>
               <button type="submit" className="btn btn-brand">{editing?.id?'Save changes':'Create staff account'}</button>
@@ -312,12 +360,16 @@ export default function ManageStaff(){
           title={`Deactivate ${target.staff.name}?`} description="They will no longer be able to sign in. Existing history is preserved."
           confirmLabel="Deactivate" onConfirm={runAction}/>
       )}
-      {target && (target.type==='activate'||target.type==='restore'||target.type==='reset') && (
+      {credentialsFor && (
+        <SignInDetailsDialog target={credentialsFor} me={me} onClose={()=>{ setCredentialsFor(null); refetch() }}/>
+      )}
+
+      {target && (target.type==='activate'||target.type==='restore') && (
         <ConfirmDialog
           open={!!target} onOpenChange={(o)=>!o&&setTarget(null)}
-          title={target.type==='activate' ? `Reactivate ${target.staff.name}?` : target.type==='restore' ? `Restore ${target.staff.name}?` : `Send a password reset to ${target.staff.name}?`}
-          description={target.type==='activate' ? 'They will regain access to sign in.' : target.type==='restore' ? 'This account will reappear in normal staff lists.' : 'They will receive an email with a link to set a new password.'}
-          confirmLabel={target.type==='activate'?'Reactivate':target.type==='restore'?'Restore':'Send reset link'}
+          title={target.type==='activate' ? `Reactivate ${target.staff.name}?` : `Restore ${target.staff.name}?`}
+          description={target.type==='activate' ? 'They will regain access to sign in.' : 'This account will reappear in normal staff lists.'}
+          confirmLabel={target.type==='activate'?'Reactivate':'Restore'}
           destructive={false} onConfirm={()=>runAction()}/>
       )}
     </div>

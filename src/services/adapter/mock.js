@@ -10,11 +10,17 @@ import { DEMO_ORDERS } from '@/data/sales.js'
 import { DEMO_PURCHASES, generateBranchStock } from '@/data/purchases.js'
 import { SHIFTS } from '@/data/shifts.js'
 import { canTransition, requiresReason } from '@/constants/status.js'
-import { isSuperAdmin } from '@/lib/permissions.js'
+import { isSuperAdmin, canChangeOwnPassword } from '@/lib/permissions.js'
+import { hashPassword, verifyPassword, passwordProblem, usernameProblem, normaliseUsername } from '@/lib/password.js'
+import {
+  ensureSeeded, credentialFor, userIdForUsername, usernameTaken, writeCredential,
+  removeCredential, publicSummary,
+} from '@/services/credentialStore.js'
 import { getSession } from '@/services/session.js'
 import {
   requireAuth, requireCan, requireSelfOrAdmin, requireBranchScope, isAdmin, isStaff, isCustomer,
-  scopeRepairs, scopeOrders, scopeShifts, scopeTradeIns, scopeUsers, scopeOwned,
+  scopeRepairs, scopeOrders, scopeShifts, scopeTradeIns, scopeUsers, scopeOwned, redactUser,
+  AuthzError,
 } from '@/lib/authz.js'
 import { customerCanCancelRepair } from '@/lib/permissions.js'
 
@@ -880,14 +886,10 @@ export const UserAPI = {
     return UserAPI.update(id, { archived: true, status: 'inactive' })
   },
   async restore(id) { return UserAPI.update(id, { archived: false }) },
-  // Sends a password-reset link in a real backend — mock mode has no email delivery, so this
-  // just records that a reset was triggered. Never exposes or generates a real password.
-  async resetPassword(id) {
-    await delay(300)
-    const user = loadJSON(KEYS.users, seedUsers()).find((u) => u.id === id)
-    if (!user) throw new Error('Account not found.')
-    return { sent: true, email: user.email }
-  },
+  // Passwords are not handled here — see AuthAPI at the foot of this file. There is
+  // deliberately no "reset password" on the user record: it used to report that an email had
+  // been sent, which nothing in mock mode could do, and an admin now issues a replacement
+  // password directly.
   // Customers/staff with repair/order/trade-in history (or, for staff, precomputed
   // `opts.blockers` from deletionRules.js) are deactivated, never deleted; an admin can
   // never remove their own account.
@@ -1001,3 +1003,189 @@ export const AuditAPI = {
 }
 
 export { TECHS }
+
+// --- authentication -------------------------------------------------------------------------
+// Sign-in, self-registration and the management of sign-in details. This is the only module
+// that reads the credential store, and nothing it returns ever contains a password or a hash.
+//
+// Three distinct routes in, matching how the business actually works:
+//   * a customer registers themselves and owns their password;
+//   * a staff member is issued a username and password by an admin, and cannot change that
+//     password until an admin unlocks it;
+//   * an admin signs in with their email and owns their password.
+// Registration can only ever produce a customer — see registerCustomer().
+
+// One message for every failure mode. Saying "no such account" and "wrong password" separately
+// turns the sign-in form into a directory of who works here.
+const SIGN_IN_FAILED = 'Those sign-in details are not recognised.'
+
+// A stand-in record to verify against when the identifier matched nobody, so a wrong username
+// costs the same time as a wrong password and the two cannot be told apart by timing.
+const DECOY_CREDENTIAL = { salt: '0'.repeat(32), iterations: 120000, hash: 'f'.repeat(64) }
+
+export const AuthAPI = {
+  async signIn({ identifier, password } = {}) {
+    await ensureSeeded()
+    await delay(200)
+    const id = String(identifier ?? '').trim()
+    if (!id || !password) throw new Error('Enter your sign-in details.')
+
+    // An email always contains @ and a username never may (usernameProblem rejects it), so the
+    // two namespaces cannot collide and one field can safely accept either.
+    const users = loadJSON(KEYS.users, seedUsers())
+    let user
+    if (id.includes('@')) {
+      user = users.find((u) => u.email?.toLowerCase() === id.toLowerCase())
+    } else {
+      const uid = await userIdForUsername(id)
+      user = users.find((u) => u.id === uid)
+    }
+
+    const credential = user ? await credentialFor(user.id) : null
+    const ok = await verifyPassword(password, credential ?? DECOY_CREDENTIAL)
+    if (!user || !credential || !ok) throw new AuthzError(SIGN_IN_FAILED)
+
+    // Checked after the password, so a suspended account cannot be identified by someone who
+    // does not already know its password.
+    if (user.archived || user.status === 'inactive') {
+      throw new AuthzError('That account is no longer active. Please speak to your branch manager.')
+    }
+
+    // The session is stored client-side and read across the whole app, so it must not carry
+    // pay rates — not even the signed-in person's own. redactUser applies the same rule here
+    // that it applies to every other read.
+    return { user: redactUser(user, user), mustChangePassword: !!credential.mustChange }
+  },
+
+  // Self-registration. `role` is set here and never taken from the caller: whatever a request
+  // contains, this can only ever create a customer. Staff and admin accounts exist only
+  // because an admin created them.
+  async registerCustomer({ name, email, phone, password } = {}) {
+    await ensureSeeded()
+    await delay(300)
+    const cleanEmail = String(email ?? '').trim().toLowerCase()
+    if (!String(name ?? '').trim()) throw new Error('Enter your name.')
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(cleanEmail)) throw new Error('Enter a valid email address.')
+    const problem = passwordProblem(password)
+    if (problem) throw new Error(problem)
+
+    const list = loadJSON(KEYS.users, seedUsers())
+    if (list.some((u) => u.email?.toLowerCase() === cleanEmail)) {
+      throw new Error('An account already uses that email address. Try signing in instead.')
+    }
+
+    const user = {
+      id: 'u' + Date.now(),
+      name: String(name).trim(),
+      email: cleanEmail,
+      phone: String(phone ?? '').trim() || undefined,
+      role: 'customer',
+      status: 'active',
+      archived: false,
+      lastActiveAt: Date.now(),
+    }
+    list.unshift(user)
+    saveJSON(KEYS.users, list)
+    // No username: customers sign in with the email address they just chose.
+    await writeCredential(user.id, { password, username: null, mustChange: false, changeAllowed: false })
+    return user
+  },
+
+  // Changing your own password. The current password is required even for an admin, so walking
+  // up to an unattended screen is not enough to lock the owner out of their own account.
+  async changeOwnPassword({ currentPassword, newPassword } = {}) {
+    await ensureSeeded()
+    await delay(250)
+    const actor = requireAuth(currentActor())
+    const credential = await credentialFor(actor.id)
+    if (!credential) throw new AuthzError('This account has no password set. Ask an admin to issue one.')
+
+    if (!canChangeOwnPassword(actor, credential)) {
+      throw new AuthzError('An admin must unlock password changes for your account before you can set a new one.')
+    }
+    if (!(await verifyPassword(currentPassword, credential))) {
+      throw new AuthzError('Your current password is not correct.')
+    }
+
+    const problem = passwordProblem(newPassword)
+    if (problem) throw new Error(problem)
+    if (await verifyPassword(newPassword, credential)) throw new Error('Choose a password you have not used before.')
+
+    // The grant is spent by using it. A staff member unlocked once does not stay unlocked —
+    // the next change needs the admin again, which is the whole point of the flag.
+    await writeCredential(actor.id, {
+      password: newPassword, mustChange: false, changeAllowed: false, updatedBy: actor.id,
+    })
+    return { changed: true }
+  },
+
+  // Issue or replace somebody's sign-in details. Admin-only, and an admin account can only be
+  // touched by a super admin — the same rule that governs creating one.
+  async issueCredentials(userId, { username, password, mustChange = false } = {}) {
+    await ensureSeeded()
+    await delay(250)
+    const actor = requireCan(currentActor(), 'manageSignInDetails')
+
+    const target = loadJSON(KEYS.users, seedUsers()).find((u) => u.id === userId)
+    if (!target) throw new Error('Account not found.')
+    if (target.role === 'admin' && actor.id !== userId && !isSuperAdmin(actor)) {
+      throw new AuthzError("Only a super admin can change another admin's sign-in details.")
+    }
+
+    const patch = { updatedBy: actor.id }
+
+    if (username !== undefined) {
+      const clean = username ? normaliseUsername(username) : null
+      if (clean) {
+        const problem = usernameProblem(clean)
+        if (problem) throw new Error(problem)
+        if (await usernameTaken(clean, userId)) throw new Error('That username is already in use.')
+      }
+      patch.username = clean
+    }
+
+    if (password) {
+      const problem = passwordProblem(password)
+      if (problem) throw new Error(problem)
+      patch.password = password
+      // A password an admin typed is a shared secret until its holder replaces it, so issuing
+      // one with "must change" also grants the change that lets them do exactly that.
+      patch.mustChange = !!mustChange
+      patch.changeAllowed = !!mustChange
+    }
+
+    const saved = await writeCredential(userId, patch)
+    return publicSummary(saved)
+  },
+
+  // Unlock (or re-lock) a staff member's ability to set their own password. This is the admin
+  // permission the staff rule turns on; nothing else grants it.
+  async setPasswordChangePermission(userId, allowed) {
+    await ensureSeeded()
+    await delay(150)
+    const actor = requireCan(currentActor(), 'manageSignInDetails')
+    const target = loadJSON(KEYS.users, seedUsers()).find((u) => u.id === userId)
+    if (!target) throw new Error('Account not found.')
+    const saved = await writeCredential(userId, { changeAllowed: !!allowed, updatedBy: actor.id })
+    return publicSummary(saved)
+  },
+
+  // What is known about an account's sign-in, minus the secret. Readable by an admin, or by the
+  // account holder about themselves — a staff member needs to see their own username and
+  // whether a change has been unlocked.
+  async signInDetails(userId) {
+    await ensureSeeded()
+    const actor = requireAuth(currentActor())
+    requireSelfOrAdmin(actor, userId)
+    return publicSummary(await credentialFor(userId))
+  },
+
+  // Called when an account is deleted outright, so its username is released and no orphaned
+  // hash is left behind.
+  async forgetCredentials(userId) {
+    const actor = requireCan(currentActor(), 'manageSignInDetails')
+    if (actor.id === userId) throw new AuthzError("You can't remove your own sign-in details.")
+    await removeCredential(userId)
+    return { removed: true }
+  },
+}

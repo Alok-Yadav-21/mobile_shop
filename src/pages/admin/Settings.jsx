@@ -7,6 +7,7 @@ import { isMockBackend, SettingsAPI } from '@/services/api.js'
 import { can } from '@/lib/permissions.js'
 import { logAction } from '@/services/auditService.js'
 import { Database, CreditCard, ShieldCheck, CircleCheck, CircleAlert } from 'lucide-react'
+import { SignInDetailsCard } from '@/components/common/SignInDetailsCard.jsx'
 
 const STRIPE_CONFIGURED = !!import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
 const DEFAULT_NOTIFY = { email:true, sms:true, staffAlerts:false }
@@ -91,6 +92,10 @@ export default function Settings(){
         </div>
         <button onClick={save} disabled={!loaded} className="btn btn-brand mt-6 disabled:opacity-50">Save settings</button>
       </div>
+
+      {/* The admin's own password. Other people's sign-in details are managed from Staff and
+          Users; this is the one account nobody else can reset for you. */}
+      <div className="mt-4"><SignInDetailsCard/></div>
     </div>
   )
 }

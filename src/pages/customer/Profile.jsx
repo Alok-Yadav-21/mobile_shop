@@ -6,6 +6,7 @@ import { useAsync } from '@/hooks/useAsync.js'
 import { NotificationAPI, UserAPI } from '@/services/api.js'
 import { logAction } from '@/services/auditService.js'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog.jsx'
+import { SignInDetailsCard } from '@/components/common/SignInDetailsCard.jsx'
 import { fmtDateTime } from '@/utils/format.js'
 import { Bell, ShieldCheck, UserX } from 'lucide-react'
 
@@ -49,6 +50,8 @@ export default function Profile(){
           <input value={f.phone} onChange={e=>setF(s=>({...s,phone:e.target.value}))} className="input-field mt-1.5"/></label>
         <button onClick={save} disabled={saving} className="btn btn-brand disabled:opacity-60">{saving?'Saving…':'Save changes'}</button>
       </div>
+
+      <div className="mt-4"><SignInDetailsCard/></div>
 
       <div className="surface p-6 mt-4 flex items-center gap-3.5">
         <div className="w-10 h-10 rounded-lg bg-brand-50 text-brand grid place-items-center flex-none"><ShieldCheck size={19}/></div>

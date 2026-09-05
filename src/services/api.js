@@ -3,6 +3,6 @@
 // src/services/adapter — see that folder to add real Supabase wiring or extend the mock data.
 export {
   RepairAPI, ProductAPI, CategoryAPI, ServiceAPI, BranchAPI, CartAPI, OrderAPI, TradeInAPI,
-  UserAPI, NotificationAPI, AuditAPI, SettingsAPI, AddressAPI, WarrantyAPI, ShiftAPI, PurchaseAPI,
+  AuthAPI, UserAPI, NotificationAPI, AuditAPI, SettingsAPI, AddressAPI, WarrantyAPI, ShiftAPI, PurchaseAPI,
   TECHS, isMockBackend,
 } from './adapter/index.js'

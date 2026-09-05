@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { ROLES } from '@/constants/roles.js'
 import { RoleBasedRoute } from './RoleBasedRoute.jsx'
+import { ProtectedRoute } from './ProtectedRoute.jsx'
 
 import PublicLayout from '@/layouts/PublicLayout.jsx'
 import Home from '@/pages/public/Home.jsx'
@@ -29,6 +30,7 @@ const Privacy = lazy(()=>import('@/pages/public/Privacy.jsx'))
 const NotFound = lazy(()=>import('@/pages/public/NotFound.jsx'))
 const Login = lazy(()=>import('@/pages/auth/Login.jsx'))
 const Register = lazy(()=>import('@/pages/auth/Register.jsx'))
+const SetPassword = lazy(()=>import('@/pages/auth/SetPassword.jsx'))
 // design lab — isolated, unlisted preview routes (not part of production nav or IA)
 const PrecisionLab = lazy(()=>import('@/pages/design-lab/Precision.jsx'))
 const CircuitLab = lazy(()=>import('@/pages/design-lab/Circuit.jsx'))
@@ -48,6 +50,7 @@ const RepairDetails = lazy(()=>import('@/pages/staff/RepairDetails.jsx'))
 const CustomerRequests = lazy(()=>import('@/pages/staff/CustomerRequests.jsx'))
 const StockTasks = lazy(()=>import('@/pages/staff/StockTasks.jsx'))
 const MyShifts = lazy(()=>import('@/pages/staff/MyShifts.jsx'))
+const StaffAccount = lazy(()=>import('@/pages/staff/Account.jsx'))
 // admin
 const AdDashboard = lazy(()=>import('@/pages/admin/Dashboard.jsx'))
 const ManageUsers = lazy(()=>import('@/pages/admin/ManageUsers.jsx'))
@@ -102,6 +105,8 @@ export default function AppRoutes(){
         </Route>
         <Route path="/login" element={<Login/>}/>
         <Route path="/register" element={<Register/>}/>
+        {/* Any signed-in role can land here — it is where an admin-issued password is replaced. */}
+        <Route path="/set-password" element={<ProtectedRoute><SetPassword/></ProtectedRoute>}/>
 
         {/* Design lab — unlisted preview routes, standalone (no PublicLayout chrome), not linked from any nav */}
         <Route path="/design-lab/precision" element={<PrecisionLab/>}/>
@@ -127,6 +132,7 @@ export default function AppRoutes(){
           <Route path="requests" element={<CustomerRequests/>}/>
           <Route path="stock" element={<StockTasks/>}/>
           <Route path="shifts" element={<MyShifts/>}/>
+          <Route path="account" element={<StaffAccount/>}/>
         </Route>
 
         {/* Admin */}

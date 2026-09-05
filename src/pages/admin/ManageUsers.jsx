@@ -7,12 +7,13 @@ import { useAuth } from '@/hooks/useAuth.js'
 import { useAsync } from '@/hooks/useAsync.js'
 import { UserAPI, RepairAPI, OrderAPI, TradeInAPI } from '@/services/api.js'
 import { BRANCHES } from '@/data/branches.js'
-import { canManageUsers, canResetPassword, isSuperAdmin, isSelf } from '@/lib/permissions.js'
+import { canManageUsers, canManageSignInDetails, isSuperAdmin, isSelf } from '@/lib/permissions.js'
 import { logAction } from '@/services/auditService.js'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog.jsx'
 import { ReasonDialog } from '@/components/common/ReasonDialog.jsx'
 import { StatusPill, RoleBadge } from '@/components/common/AccountStatusBadge.jsx'
 import { RowActionsMenu } from '@/components/common/RowActionsMenu.jsx'
+import { SignInDetailsDialog } from '@/components/common/SignInDetailsDialog.jsx'
 import { TableSkeleton } from '@/components/common/TableSkeleton.jsx'
 import { ErrorState } from '@/components/common/ErrorState.jsx'
 import { EmptyState } from '@/components/common/EmptyState.jsx'
@@ -48,9 +49,10 @@ export default function ManageUsers(){
   const [editing,setEditing]=useState(null)
   const [viewing,setViewing]=useState(null)
   const [target,setTarget]=useState(null) // {type, user}
+  const [credentialsFor,setCredentialsFor]=useState(null) // account whose sign-in details are open
 
   const canManage = canManageUsers(me?.role)
-  const canReset = canResetPassword(me?.role)
+  const canManageSignIn = canManageSignInDetails(me?.role)
   const meIsSuperAdmin = isSuperAdmin(me)
 
   const list = useMemo(()=>{
@@ -94,6 +96,9 @@ export default function ManageUsers(){
         const created = await UserAPI.create(data, me)
         logAction({ user:me, action:'user.create', entityType:'user', entityId:created.id, after:created })
         toast.success(`${data.role[0].toUpperCase()+data.role.slice(1)} account created`)
+        // An account with no password cannot sign in, so the sign-in dialog opens straight
+        // away rather than leaving a dead record in the list for somebody to puzzle over.
+        setCredentialsFor(created)
       }
       setEditing(null); refetch()
     } catch(e){ toast.error(e.message||'Could not save account') }
@@ -114,10 +119,6 @@ export default function ManageUsers(){
         await UserAPI.restore(u.id)
         logAction({ user:me, action:'user.restore', entityType:'user', entityId:u.id })
         toast.success(`${u.name} restored`)
-      } else if(type==='reset'){
-        const result = await UserAPI.resetPassword(u.id)
-        logAction({ user:me, action:'user.password_reset_triggered', entityType:'user', entityId:u.id })
-        toast.success(`Password reset link sent to ${result.email}`)
       } else {
         const status = type==='activate' ? 'active' : 'inactive'
         await UserAPI.setStatus(u.id, status, me)
@@ -136,7 +137,7 @@ export default function ManageUsers(){
     return [
       { key:'view', label:'View account', icon:Eye, onClick:()=>setViewing(u) },
       { key:'edit', label:'Edit', icon:Pencil, onClick:()=>openEdit(u), hidden:!!u.archived },
-      { key:'reset', label:'Reset password', icon:KeyRound, onClick:()=>setTarget({type:'reset',user:u}), hidden:!canReset||!!u.archived },
+      { key:'signin', label:'Sign-in details', icon:KeyRound, onClick:()=>setCredentialsFor(u), hidden:!canManageSignIn||!!u.archived },
       'separator',
       active
         ? { key:'deactivate', label:'Deactivate', icon:UserX, tone:'amber', onClick:()=>setTarget({type:'deactivate',user:u}), disabled:self, disabledReason:self?"Can't deactivate yourself":undefined, hidden:!!u.archived }
@@ -279,16 +280,20 @@ export default function ManageUsers(){
           onConfirm={runAction}
         />
       )}
+      {credentialsFor && (
+        <SignInDetailsDialog target={credentialsFor} me={me} onClose={()=>{ setCredentialsFor(null); refetch() }}/>
+      )}
+
       {target && !REASON_ACTIONS.has(target.type) && (
         <ConfirmDialog
           open={!!target} onOpenChange={(o)=>!o&&setTarget(null)}
-          title={target.type==='activate' ? `Reactivate ${target.user.name}?` : target.type==='restore' ? `Restore ${target.user.name}?` : `Send a password reset to ${target.user.name}?`}
+          title={target.type==='activate' ? `Reactivate ${target.user.name}?` : target.type==='restore' ? `Restore ${target.user.name}?` : `Deactivate ${target.user.name}?`}
           description={
             target.type==='activate' ? 'They will regain access to sign in and use the platform.'
             : target.type==='restore' ? 'This account will reappear in normal account lists.'
-            : "They will receive an email with a link to set a new password. Their current password is never shown or shared."
+            : 'They will no longer be able to sign in. Their records are kept.'
           }
-          confirmLabel={target.type==='activate'?'Reactivate':target.type==='restore'?'Restore':'Send reset link'}
+          confirmLabel={target.type==='activate'?'Reactivate':target.type==='restore'?'Restore':'Deactivate'}
           destructive={false}
           onConfirm={()=>runAction()}
         />
