@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   REPAIR_FLOW, STATUS_STYLES, STATUS_TRANSITIONS, canTransition, requiresReason, nextStatuses,
   TRADE_IN_FLOW, TRADE_IN_LABELS, tradeInCanTransition,
+  CUSTOMER_STATUS_LABELS, CUSTOMER_NEXT_STEP, customerStatusLabel, customerNextStep, statusLabel,
 } from './status.js'
 
 describe('REPAIR_FLOW', () => {
@@ -79,5 +80,53 @@ describe('trade-in status vocabulary', () => {
   it('cancellation is blocked once completed', () => {
     expect(tradeInCanTransition('submitted', 'cancelled')).toBe(true)
     expect(tradeInCanTransition('completed', 'cancelled')).toBe(false)
+  })
+})
+
+const ALL_STATUSES = [...REPAIR_FLOW, 'Cancelled']
+
+describe('customer status vocabulary', () => {
+  it('covers every status a repair can reach, so nothing falls back to workshop wording', () => {
+    for (const s of ALL_STATUSES) expect(CUSTOMER_STATUS_LABELS[s]).toBeTruthy()
+  })
+
+  it('does not invent a status the workshop does not have', () => {
+    for (const s of Object.keys(CUSTOMER_STATUS_LABELS)) expect(ALL_STATUSES).toContain(s)
+    for (const s of Object.keys(CUSTOMER_NEXT_STEP)) expect(ALL_STATUSES).toContain(s)
+  })
+
+  it('addresses the customer in the two states where they are the blocker', () => {
+    // These were the actually-defective ones: the label named neither who was being waited on
+    // nor what to do about it.
+    expect(customerStatusLabel('Awaiting device')).toMatch(/your device/i)
+    expect(customerStatusLabel('Quote awaiting approval')).toMatch(/your approval/i)
+    expect(customerNextStep('Awaiting device')).toBeTruthy()
+    expect(customerNextStep('Quote awaiting approval')).toBeTruthy()
+  })
+
+  it('gives no next step while the branch is the one working', () => {
+    for (const s of ['Booking received', 'Device received', 'Diagnostics', 'Repair in progress',
+      'Parts ordered', 'Quality check', 'Dispatched', 'Completed', 'Cancelled']) {
+      expect(customerNextStep(s)).toBeNull()
+    }
+  })
+
+  it('keeps the workshop vocabulary for staff and admins', () => {
+    for (const s of ALL_STATUSES) {
+      expect(statusLabel(s, 'internal')).toBe(s)
+      expect(statusLabel(s)).toBe(s)
+    }
+  })
+
+  it('rewords for customers without changing the underlying status', () => {
+    expect(statusLabel('Booking received', 'customer')).toBe('Booking confirmed')
+    expect(statusLabel('Ready for collection', 'customer')).toBe('Ready to collect')
+    // Every status still keys a colour, so a reworded badge cannot lose its styling.
+    for (const s of ALL_STATUSES) expect(STATUS_STYLES[s]).toBeTruthy()
+  })
+
+  it('falls back to the raw status rather than rendering nothing', () => {
+    expect(customerStatusLabel('Some future status')).toBe('Some future status')
+    expect(customerNextStep('Some future status')).toBeNull()
   })
 })

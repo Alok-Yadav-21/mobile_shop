@@ -85,3 +85,56 @@ export function tradeInCanTransition(from, to){
   const i = TRADE_IN_FLOW.indexOf(from)
   return to==='offer_declined' ? i>=0 && i<TRADE_IN_FLOW.indexOf('offer_accepted') : TRADE_IN_FLOW[i+1]===to
 }
+
+// --- the same statuses, said to the customer -------------------------------------------------
+// REPAIR_FLOW above is the workshop's vocabulary and has to stay exactly as it is: it mirrors
+// the repair_status enum in the database, and it is what staff and admins need to see, because
+// it describes what the branch is doing.
+//
+// It is the wrong voice for the person who dropped the device off. "Booking received" is the
+// shop's sentence about itself, and two of these are worse than merely odd — they are the
+// states where the CUSTOMER is what everyone is waiting for, and neither label says so:
+//
+//   * "Awaiting device"         — awaiting it from whom? They have to bring or post it.
+//   * "Quote awaiting approval" — awaiting whose approval? Theirs. Nothing is happening
+//                                 until they act.
+//
+// So the customer gets the same status in their own voice, and a plain next step when there is
+// something for them to do. One map, applied by passing audience="customer" to StatusBadge —
+// not a role check scattered through the pages.
+export const CUSTOMER_STATUS_LABELS = {
+  'Booking received': 'Booking confirmed',
+  'Awaiting device': 'Waiting for your device',
+  'Device received': 'Device with us',
+  'Diagnostics': 'Being checked',
+  'Quote awaiting approval': 'Your approval needed',
+  'Repair in progress': 'Being repaired',
+  'Parts ordered': 'Waiting for parts',
+  'Quality check': 'Final checks',
+  'Ready for collection': 'Ready to collect',
+  'Dispatched': 'On its way to you',
+  'Completed': 'Completed',
+  'Cancelled': 'Cancelled',
+}
+
+// What the customer has to do now. Null wherever the branch is the one working — saying
+// "nothing to do" on eight of twelve states trains people to stop reading the line that
+// matters on the other four.
+export const CUSTOMER_NEXT_STEP = {
+  'Awaiting device': 'Bring your device into the branch, or post it to us.',
+  'Quote awaiting approval': 'Review your quote and approve it so we can start work.',
+  'Ready for collection': 'Collect it from your branch — bring your reference number.',
+}
+
+export function customerStatusLabel(status){
+  return CUSTOMER_STATUS_LABELS[status] || status
+}
+export function customerNextStep(status){
+  return CUSTOMER_NEXT_STEP[status] || null
+}
+
+// `audience` is 'customer' or 'internal'. Internal is the default everywhere, so a page that
+// forgets to say shows the operational status rather than silently reworded copy.
+export function statusLabel(status, audience = 'internal'){
+  return audience === 'customer' ? customerStatusLabel(status) : status
+}

@@ -1,15 +1,16 @@
 import { motion, useReducedMotion } from 'framer-motion'
-import { REPAIR_FLOW } from '@/constants/status.js'
+import { REPAIR_FLOW, statusLabel } from '@/constants/status.js'
 import { fmtDateTime } from '@/utils/format.js'
 import { Check, X } from 'lucide-react'
 
-// The progress of one repair, read straight from its history. Props are unchanged, so the
-// customer tracking page and the staff detail page both pick this up without edits.
+// The progress of one repair, read straight from its history. The same component serves the
+// customer tracking page and the staff detail page; `audience` decides whose vocabulary the
+// step names are written in, and defaults to the workshop's.
 //
 // A cancelled repair is shown as it actually happened: the steps it did reach stay completed,
 // the point where it stopped is marked, and the rest are dropped rather than left implying
 // work still to come.
-export function RepairTimeline({ repair }) {
+export function RepairTimeline({ repair, audience = 'internal' }) {
   const reduce = useReducedMotion()
   const history = repair?.history ?? []
   const cancelled = repair?.status === 'Cancelled'
@@ -81,7 +82,7 @@ export function RepairTimeline({ repair }) {
               </span>
               <div className="min-w-0">
                 <div className={`text-sm font-semibold ${!done && !active && !isCancelPoint ? 'text-graphite-400' : ''}`}>
-                  {s}
+                  {statusLabel(s, audience)}
                   {active && <span className="ml-2 text-[11px] font-bold text-brand">In progress</span>}
                 </div>
                 {h && <div className="text-[11.5px] text-graphite-400">{fmtDateTime(h[1])}</div>}
