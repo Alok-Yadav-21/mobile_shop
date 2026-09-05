@@ -216,15 +216,35 @@ function notifyBranchStaff(branchId, payload, except = null) {
 
 // Told to the technician, not only recorded on the repair: an assignment the assignee never
 // sees is not an assignment.
-function notifyTechnicianAssigned(repair, staffId) {
+function notifyTechnicianAssigned(repair, staffId, assignedBy = null) {
   const staff = loadJSON(KEYS.users, seedUsers()).find((u) => u.id === staffId)
   if (!staff) return
   const device = [repair.brand, repair.model].filter(Boolean).join(' ') || 'device'
   notifyUser(staff.id, {
     title: `${repair.ref} assigned to you`,
-    body: `${device} — ${repair.problem || 'repair'}.`,
+    // Who gave it to them, because in a branch with a manager and a central admin "who decided
+    // this is mine?" is a real question and the audit log is not somewhere a technician looks.
+    body: `${device} — ${repair.problem || 'repair'}.${assignedBy ? ` Assigned by ${assignedBy}.` : ''}`,
     ref: repair.ref,
     link: `/staff/repairs/${repair.ref}`,
+  })
+}
+
+// The other half of a reassignment. Only the incoming technician used to be told, so the one who
+// lost the job kept "assigned to you" in their bell and no word that it had moved — they would
+// go to the bench for a device that was no longer theirs, and then be refused by the assignment
+// rule with nothing on screen explaining why.
+function notifyTechnicianUnassigned(repair, staffId, newTechId) {
+  const users = loadJSON(KEYS.users, seedUsers())
+  const staff = users.find((u) => u.id === staffId)
+  if (!staff) return
+  const device = [repair.brand, repair.model].filter(Boolean).join(' ') || 'device'
+  const taker = newTechId ? users.find((u) => u.id === newTechId)?.name : null
+  notifyUser(staff.id, {
+    title: `${repair.ref} is no longer yours`,
+    body: taker ? `${device} — now with ${taker}.` : `${device} — taken off your list.`,
+    ref: repair.ref,
+    link: '/staff/repairs',
   })
 }
 
@@ -388,7 +408,11 @@ export const RepairAPI = {
     // An assignment is announced to the technician for the same reason a status change is
     // announced to the customer: the person who has to act on it should not have to go
     // looking for it.
-    if (patch.tech !== undefined && patch.tech && patch.tech !== previousTech) notifyTechnicianAssigned(r, patch.tech)
+    if (patch.tech !== undefined && patch.tech !== previousTech) {
+      // Both ends of the move, including an unassignment, which told nobody at all before.
+      if (previousTech) notifyTechnicianUnassigned(r, previousTech, patch.tech)
+      if (patch.tech) notifyTechnicianAssigned(r, patch.tech, actor?.name)
+    }
     return r
   },
   async addNote(ref, note) {
