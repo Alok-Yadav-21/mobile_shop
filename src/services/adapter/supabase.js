@@ -4,6 +4,7 @@
 // supabase/migrations applied to the project.
 import { supabase } from '@/lib/supabaseClient.js'
 import { canTransition, requiresReason } from '@/constants/status.js'
+import { locatePostcode, branchesByDistance } from '@/lib/geo.js'
 
 // The DB's repair_status enum (supabase/migrations/0001_init.sql) and the app's REPAIR_FLOW
 // (src/constants/status.js) both describe the same 12 states — this is a direct 1:1 label map.
@@ -397,10 +398,16 @@ export const BranchAPI = {
     if (error) throw error
     return { id: data.id, area: data.area, local: data.local_name, addr: data.address, pc: data.postcode, lat: Number(data.lat), lng: Number(data.lng), active: data.active, archived: !!data.archived }
   },
+  // Same ranking as ./mock.js — real distance, nearest first, each with its `km`. Ranked in
+  // JavaScript rather than SQL because the branch list is small and the alternative is a
+  // PostGIS dependency for eight rows; move it into the query if the network ever grows.
   async nearest(pc) {
-    const all = await this.list()
-    const out = (pc || '').toUpperCase().replace(/\s+/g, '').match(/^[A-Z]{1,2}\d/)?.[0] || ''
-    return all.filter((b) => b.pc.replace(/\s+/g, '').startsWith(out))
+    const all = (await this.list()).filter((b) => b.active !== false && !b.archived)
+    const origin = locatePostcode(pc, all)
+    if (!origin) return []
+    return branchesByDistance(all, origin)
+      .filter((r) => r.km != null)
+      .map((r) => ({ ...r.branch, km: r.km }))
   },
   // Mirrors the mock adapter: new branches open inactive so setup can finish before they
   // appear in customer-facing branch pickers.

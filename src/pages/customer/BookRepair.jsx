@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth.js'
 import { RepairAPI, BranchAPI } from '@/services/api.js'
 import { BRANCHES } from '@/data/branches.js'
+import { formatDistance } from '@/lib/geo.js'
 import { Calendar } from '@/components/ui/calendar.jsx'
 import {
   Smartphone, Tablet, Laptop, MonitorSmartphone, Speaker, MonitorDot,
@@ -31,13 +32,30 @@ export default function BookRepair(){
     name:user?.name||'', phone:user?.phone||'', email:user?.email||'',
   })
   const [branchMsg,setBranchMsg]=useState('')
+  // Branches ranked by distance once a postcode has been searched. Until then the picker
+  // shows the plain list — there is no meaningful order to put them in yet.
+  const [ranked,setRanked]=useState([])
+  const [finding,setFinding]=useState(false)
   const [busy,setBusy]=useState(false)
   const set = (k)=>(v)=>setF(s=>({...s,[k]:v}))
 
   const findBranch = async ()=>{
-    const hits = await BranchAPI.nearest(f.pc)
-    if(hits.length){ setF(s=>({...s,branch:hits[0].id})); setBranchMsg('Nearest branch: '+hits[0].area.split('—')[0]) }
-    else setBranchMsg('No branch found for that area — pick one below.')
+    if(!f.pc.trim()){ setBranchMsg('Enter your postcode first.'); return }
+    setFinding(true)
+    try{
+      const hits = await BranchAPI.nearest(f.pc)
+      if(hits.length){
+        // Reordering the list is the actual answer to "find nearest" — naming one branch in a
+        // sentence while leaving the picker in its original order makes the reader hunt for it.
+        setRanked(hits)
+        setF(s=>({...s,branch:hits[0].id}))
+        setBranchMsg(`Nearest: ${hits[0].area} — about ${formatDistance(hits[0].km)} away`)
+      } else {
+        setRanked([])
+        setBranchMsg("We couldn't place that postcode. Check it, or pick a branch below.")
+      }
+    } catch { setBranchMsg('Could not search just now — pick a branch below.') }
+    finally{ setFinding(false) }
   }
 
   const canNext = ()=>{
@@ -116,14 +134,18 @@ export default function BookRepair(){
             <h2 className="font-bold text-[15px] mb-4">Choose a branch</h2>
             <div className="flex gap-2 mb-2">
               <div className="flex items-center gap-2 input-field flex-1"><Search size={14} className="text-graphite-400"/><input value={f.pc} onChange={e=>set('pc')(e.target.value)} placeholder="Your postcode, e.g. SE18 6EX" className="flex-1 outline-none bg-transparent"/></div>
-              <button onClick={findBranch} className="btn btn-ghost btn-sm">Find nearest</button>
+              <button onClick={findBranch} disabled={finding} className="btn btn-ghost btn-sm disabled:opacity-60">{finding?'Searching…':'Find nearest'}</button>
             </div>
             {branchMsg && <p className="text-[12px] text-brand mb-3">{branchMsg}</p>}
             <div className="grid sm:grid-cols-2 gap-2 max-h-56 overflow-y-auto">
-              {BRANCHES.map(b=>(
+              {(ranked.length ? ranked : BRANCHES).map(b=>(
                 <button key={b.id} onClick={()=>set('branch')(b.id)} className={`flex items-center gap-2.5 text-left px-3 py-2.5 rounded-lg border transition-colors ${f.branch===b.id?'border-brand bg-brand-50':'border-graphite-200 hover:border-brand/40'}`}>
                   <MapPin size={15} className={f.branch===b.id?'text-brand':'text-graphite-400'}/>
-                  <div className="text-[12.5px]"><div className="font-semibold">{b.area.split('—')[0]}</div><div className="text-graphite-400 mono-data text-[11px]">{b.pc}</div></div>
+                  {/* The full area name, not the part before the em dash: three branches are
+                      "Woolwich — something" and two are "New Eltham — something", so trimming
+                      it leaves the picker showing the same label twice. */}
+                  <div className="text-[12.5px] min-w-0 flex-1"><div className="font-semibold truncate">{b.area}</div><div className="text-graphite-400 mono-data text-[11px]">{b.pc}</div></div>
+                  {b.km!=null && <span className="text-[11px] font-semibold text-graphite-400 flex-none">{formatDistance(b.km)}</span>}
                 </button>
               ))}
             </div>

@@ -23,6 +23,7 @@ import {
   AuthzError,
 } from '@/lib/authz.js'
 import { customerCanCancelRepair } from '@/lib/permissions.js'
+import { locatePostcode, branchesByDistance } from '@/lib/geo.js'
 
 const delay = (ms = 250) => new Promise((r) => setTimeout(r, ms))
 
@@ -493,10 +494,22 @@ export const BranchAPI = {
     const branch = { active: false, archived: false, lat: null, lng: null, ...data, id }
     list.push(branch); saveJSON(KEYS.branches, list); return branch
   },
+  // Branches ranked by actual distance from the given postcode, nearest first, each carrying
+  // the `km` it is away.
+  //
+  // This used to match the postcode as a string prefix, which is not a distance at all: it
+  // only ever found a branch that happened to share the caller's postcode area. Somebody in
+  // Bromley (BR1) got "no branch found", because no branch has a BR1 postcode — while four
+  // branches sat within four miles of them. It is the same haversine ranking the branch
+  // finder on the homepage uses, so the two can no longer disagree.
   async nearest(pc) {
     await delay()
-    const out = (pc || '').toUpperCase().replace(/\s+/g, '').match(/^[A-Z]{1,2}\d/)?.[0] || ''
-    return loadJSON(KEYS.branches, seedBranches()).filter((b) => b.active !== false && !b.archived && b.pc.replace(/\s+/g, '').startsWith(out))
+    const list = loadJSON(KEYS.branches, seedBranches()).filter((b) => b.active !== false && !b.archived)
+    const origin = locatePostcode(pc, list)
+    if (!origin) return []
+    return branchesByDistance(list, origin)
+      .filter((r) => r.km != null)
+      .map((r) => ({ ...r.branch, km: r.km }))
   },
   async update(id, patch) {
     await delay()

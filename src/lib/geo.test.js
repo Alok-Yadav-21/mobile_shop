@@ -106,3 +106,50 @@ describe('locatePostcode', () => {
     expect(locatePostcode('nonsense', branches)).toBeNull()
   })
 })
+
+// --- the reported bug: a Bromley postcode found no branch at all -----------------------------
+// BranchAPI.nearest used to match postcodes as strings, so BR1 returned nothing: no branch has
+// a BR1 postcode. Four are within four miles. These pin the ranking to the real branch data.
+describe('ranking the real branch network', () => {
+  const REAL_BRANCHES = [
+    { id: 'blv', area: 'Belvedere', pc: 'DA17 5JE', lat: 51.49, lng: 0.17 },
+    { id: 'sid', area: 'Sidcup', pc: 'DA15 9PS', lat: 51.43, lng: 0.10 },
+    { id: 'nel', area: 'New Eltham', pc: 'SE9 2DR', lat: 51.44, lng: 0.07 },
+    { id: 'nsa', area: 'New Eltham — Station Approach', pc: 'SE9 2AB', lat: 51.44, lng: 0.05 },
+    { id: 'orp', area: 'Orpington', pc: 'BR5 2RG', lat: 51.38, lng: 0.10 },
+    { id: 'wol', area: 'Woolwich', pc: 'SE18 6EX', lat: 51.49, lng: 0.06 },
+    { id: 'wbs', area: 'Woolwich — Beresford Square', pc: 'SE18 6AY', lat: 51.49, lng: 0.07 },
+    { id: 'whr', area: 'Woolwich — Herbert Road', pc: 'SE18 3TB', lat: 51.48, lng: 0.06 },
+  ]
+  const rank = (pc) => branchesByDistance(REAL_BRANCHES, locatePostcode(pc, REAL_BRANCHES))
+
+  it('answers for BR1, which no branch shares a postcode area with', () => {
+    const out = rank('BR1 5AL')
+    expect(out[0].branch.id).toBe('nsa')
+    expect(out[0].km).toBeLessThan(6)
+    // Every branch is offered, not just ones in the same postcode area.
+    expect(out).toHaveLength(8)
+  })
+
+  it('puts Belvedere furthest from Bromley and nearest to itself', () => {
+    expect(rank('BR1 5AL').at(-1).branch.id).toBe('blv')
+    expect(rank('DA17 5JE')[0].branch.id).toBe('blv')
+  })
+
+  it('ranks a Woolwich postcode onto a Woolwich branch', () => {
+    expect(['wol', 'wbs']).toContain(rank('SE18 6EX')[0].branch.id)
+  })
+
+  it('places an unlisted district from its own postcode area rather than giving up', () => {
+    // BR2 is not in AREA_CENTRES; it should still land in the Bromley cluster.
+    const p = locatePostcode('BR2 9AA', REAL_BRANCHES)
+    expect(p).not.toBeNull()
+    expect(p.approximate).toBe(true)
+    expect(p.lat).toBeGreaterThan(51.3)
+    expect(p.lat).toBeLessThan(51.5)
+  })
+
+  it('still refuses a postcode from another part of the country', () => {
+    expect(locatePostcode('EH1 1AA', REAL_BRANCHES)).toBeNull()
+  })
+})
