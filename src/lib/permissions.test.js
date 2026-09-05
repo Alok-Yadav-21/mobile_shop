@@ -132,3 +132,18 @@ describe('canChangeOwnPassword', () => {
     expect(canChangeOwnPassword(null, { changeAllowed: true })).toBe(false)
   })
 })
+
+describe('assigning a technician', () => {
+  // Staff could reassign a repair, including handing away a job assigned to them, straight from
+  // the job screen — so work moved between technicians with no rota decision behind it.
+  it('is an admin decision, not a technician one', () => {
+    expect(can('admin', 'assignTechnician')).toBe(true)
+    expect(can('staff', 'assignTechnician')).toBe(false)
+    expect(can('customer', 'assignTechnician')).toBe(false)
+  })
+
+  it('does not stop staff working the job they hold', () => {
+    expect(can('staff', 'updateRepairStatus')).toBe(true)
+    expect(can('staff', 'addCustomerNote')).toBe(true)
+  })
+})
