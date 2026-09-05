@@ -23,6 +23,9 @@ import {
   AuthzError,
 } from '@/lib/authz.js'
 import { customerCanCancelRepair } from '@/lib/permissions.js'
+import {
+  customerStatusLabel, tradeInStatusLabel, tradeInCanTransition,
+} from '@/constants/status.js'
 import { locatePostcode, branchesByDistance } from '@/lib/geo.js'
 import { nextReference } from '@/lib/references.js'
 
@@ -86,31 +89,96 @@ function seedBranchStock() { return generateBranchStock(loadJSON(KEYS.products, 
 // the information — the customer, staff and admin screens all read the same two stores.
 // Written directly rather than through NotificationAPI.create because the actor here is the
 // staff member changing the status, not the customer being told about it.
-function notifyRepairCustomer(repair, status) {
-  const users = loadJSON(KEYS.users, seedUsers())
-  const owner = users.find((u) => u.role === 'customer'
-    && ((repair.email && u.email === repair.email) || (repair.phone && u.phone === repair.phone)))
-  if (!owner) return
+// Raises an in-app notification for one person. Every journey update goes through here so a
+// step can never be announced on one journey and silently applied on another.
+//
+// The stored field is `customerId` because that is what the notifications table has always been
+// keyed by and what scopeOwned() filters on; it holds whichever user the message is for, which
+// is now sometimes a staff member being told about an assignment.
+function notifyUser(userId, { title, body, ref, link }) {
+  if (!userId) return
   const list = loadJSON(KEYS.notifications, [])
   list.unshift({
-    id: 'n' + Date.now(),
-    customerId: owner.id,
-    title: `${repair.ref} — ${status}`,
-    body: `Your ${[repair.brand, repair.model].filter(Boolean).join(' ') || 'device'} repair is now "${status}".`,
-    ref: repair.ref,
+    id: 'n' + Date.now() + Math.random().toString(36).slice(2, 6),
+    customerId: userId,
+    title, body, ref: ref ?? null, link: link ?? null,
     read: false,
     createdAt: Date.now(),
   })
   saveJSON(KEYS.notifications, list)
 }
 
+// `tech` holds a staff account id, which is meaningless on screen. The name is resolved once
+// here, on the way out, rather than by every page loading the staff list — which a customer
+// cannot do anyway: scopeUsers gives a customer only their own record, so a page-side lookup
+// would leave the technician blank on the one screen that most needs it.
+//
+// Read-path only, and a copy: the stored row keeps just the id, so a rename is picked up on the
+// next read instead of being frozen into the repair.
+function withTechName(repair, users) {
+  if (!repair) return repair
+  const name = repair.tech ? (users.find((u) => u.id === repair.tech)?.name ?? repair.tech) : null
+  return { ...repair, techName: name }
+}
+function decorateRepairs(rows) {
+  const users = loadJSON(KEYS.users, seedUsers())
+  return rows.map((r) => withTechName(r, users))
+}
+
+// The account a repair belongs to, matched the same way scopeRepairs decides who may read it.
+function repairOwner(repair) {
+  return loadJSON(KEYS.users, seedUsers()).find((u) => u.role === 'customer'
+    && ((repair.email && u.email === repair.email) || (repair.phone && u.phone === repair.phone)))
+}
+
+function notifyRepairCustomer(repair, status) {
+  const owner = repairOwner(repair)
+  if (!owner) return
+  // The customer's wording, not the workshop's — the notification is the one place they are
+  // told about a step without opening the app, so it has to read the same as the page it
+  // links to. See CUSTOMER_STATUS_LABELS in constants/status.js.
+  const label = customerStatusLabel(status)
+  const device = [repair.brand, repair.model].filter(Boolean).join(' ') || 'device'
+  notifyUser(owner.id, {
+    title: `${repair.ref} — ${label}`,
+    body: `Your ${device} repair is now "${label}".`,
+    ref: repair.ref,
+    link: `/app/repairs/${repair.ref}`,
+  })
+}
+
+// The same announcement for the sell journey, which previously made none at all: a customer
+// sent a device in and heard nothing until they thought to check the page.
+function notifyTradeInCustomer(tradeIn, status) {
+  const label = tradeInStatusLabel(status, 'customer')
+  const device = [tradeIn.brand, tradeIn.model].filter(Boolean).join(' ') || 'device'
+  notifyUser(tradeIn.customerId, {
+    title: `${tradeIn.reference} — ${label}`,
+    body: `Your ${device} sale is now "${label}".`,
+    ref: tradeIn.reference,
+    link: `/app/sell/${tradeIn.reference}`,
+  })
+}
+
+// Told to the technician, not only recorded on the repair: an assignment the assignee never
+// sees is not an assignment.
+function notifyTechnicianAssigned(repair, staffId) {
+  const staff = loadJSON(KEYS.users, seedUsers()).find((u) => u.id === staffId)
+  if (!staff) return
+  const device = [repair.brand, repair.model].filter(Boolean).join(' ') || 'device'
+  notifyUser(staff.id, {
+    title: `${repair.ref} assigned to you`,
+    body: `${device} — ${repair.problem || 'repair'}.`,
+    ref: repair.ref,
+    link: `/staff/repairs/${repair.ref}`,
+  })
+}
+
+
 export const RepairAPI = {
   // Scoped by the data layer: an admin sees every branch, a staff member only their own
   // branch's queue, a customer only the repairs booked in their name.
-  async list() { await delay(); return scopeRepairs(currentActor(), loadJSON(KEYS.repairs, REPAIRS)) },
-  // The `phone` argument is ignored: who the caller is comes from the session, and
-  // scopeRepairs already narrows to their own bookings. Filtering by a phone number passed
-  // in by the page would let a wrong or missing value decide what someone sees.
+  async list() { await delay(); return decorateRepairs(scopeRepairs(currentActor(), loadJSON(KEYS.repairs, REPAIRS))) },
   // Takes no argument on purpose: whose repairs these are is decided by the session, not by a
   // phone number the caller hands in. Both customer pages used to pass `user.phone` with a
   // hardcoded demo number as a fallback, which read as though an account with no phone would
@@ -118,18 +186,18 @@ export const RepairAPI = {
   // that looks like it is there and is not invites someone to start trusting it.
   async forCustomer() {
     await delay()
-    return scopeRepairs(currentActor(), loadJSON(KEYS.repairs, REPAIRS))
+    return decorateRepairs(scopeRepairs(currentActor(), loadJSON(KEYS.repairs, REPAIRS)))
   },
   async forBranch(branch) {
     await delay()
-    return scopeRepairs(currentActor(), loadJSON(KEYS.repairs, REPAIRS)).filter((r) => r.branch === branch)
+    return decorateRepairs(scopeRepairs(currentActor(), loadJSON(KEYS.repairs, REPAIRS)).filter((r) => r.branch === branch))
   },
   // Looked up by reference straight from the URL, so this is exactly where a customer could
   // otherwise read someone else's repair by editing the address bar. Resolving it out of the
   // caller's own scoped set means an unrelated reference simply does not exist for them.
   async get(ref) {
     await delay()
-    return scopeRepairs(currentActor(), loadJSON(KEYS.repairs, REPAIRS)).find((r) => r.ref === ref)
+    return decorateRepairs(scopeRepairs(currentActor(), loadJSON(KEYS.repairs, REPAIRS))).find((r) => r.ref === ref)
   },
   async create(data) {
     await delay()
@@ -175,6 +243,7 @@ export const RepairAPI = {
     // assigning the patch updates it in place and a later comparison against it would always
     // find the status unchanged.
     const previousStatus = r.status
+    const previousTech = r.tech
 
     if (patch.status && patch.status !== previousStatus) {
       if (!canTransition(previousStatus, patch.status)) throw new Error(`Cannot move a repair from "${previousStatus}" to "${patch.status}".`)
@@ -187,6 +256,10 @@ export const RepairAPI = {
     // notification against the account that booked it, which is what makes the customer
     // dashboard reflect staff activity without anyone re-entering it.
     if (patch.status && patch.status !== previousStatus) notifyRepairCustomer(r, patch.status)
+    // An assignment is announced to the technician for the same reason a status change is
+    // announced to the customer: the person who has to act on it should not have to go
+    // looking for it.
+    if (patch.tech !== undefined && patch.tech && patch.tech !== previousTech) notifyTechnicianAssigned(r, patch.tech)
     return r
   },
   async addNote(ref, note) {
@@ -830,17 +903,61 @@ export const TradeInAPI = {
     await delay()
     const list = loadJSON(KEYS.tradeIns, [])
     const reference = nextReference(list, 'VT-TI-', 3000)
-    const req = { reference, status: 'submitted', createdAt: Date.now(), ...data }
-    list.unshift(req); saveJSON(KEYS.tradeIns, list); return req
+    // `history` mirrors a repair's, so the customer's sell tracking can show the same timeline
+    // rather than a single status with no account of how it got there.
+    const req = { reference, status: 'submitted', createdAt: Date.now(), history: [['submitted', Date.now()]], ...data }
+    list.unshift(req); saveJSON(KEYS.tradeIns, list)
+    notifyTradeInCustomer(req, 'submitted')
+    return req
   },
   async update(reference, patch) {
     await delay()
-    requireCan(currentActor(), 'inspectTradeIn')
+    const actor = currentActor()
+    requireCan(actor, 'inspectTradeIn')
+    // Accepting or declining an offer is the customer's decision, so it is not something staff
+    // do here — see respondToOffer below. Admins keep the override for the counter case where
+    // the customer answers in person.
+    if (patch.status === 'offer_accepted' && !isAdmin(actor)) {
+      throw new AuthzError('Only the customer can accept their own offer.')
+    }
     const list = loadJSON(KEYS.tradeIns, [])
     const t = list.find((x) => x.reference === reference)
     if (!t) return null
     if (patch.status === 'offer_declined' && !patch.rejectionReason && !t.rejectionReason) throw new Error('A rejection reason is required.')
-    Object.assign(t, patch); saveJSON(KEYS.tradeIns, list); return t
+    const previousStatus = t.status
+    if (patch.status && patch.status !== previousStatus) {
+      if (!tradeInCanTransition(previousStatus, patch.status)) {
+        throw new Error(`Cannot move a sale from "${tradeInStatusLabel(previousStatus)}" to "${tradeInStatusLabel(patch.status)}".`)
+      }
+    }
+    Object.assign(t, patch)
+    if (patch.status && patch.status !== previousStatus) {
+      t.history = [...(t.history || []), [patch.status, Date.now()]]
+    }
+    saveJSON(KEYS.tradeIns, list)
+    if (patch.status && patch.status !== previousStatus) notifyTradeInCustomer(t, patch.status)
+    return t
+  },
+  // The customer's answer to their own offer. This existed nowhere: an offer could only be
+  // accepted by an admin clicking Accept on the customer's behalf, which is not an offer.
+  async respondToOffer(reference, accepted, reason) {
+    await delay()
+    const actor = requireAuth(currentActor())
+    const list = loadJSON(KEYS.tradeIns, [])
+    // Resolved out of the caller's own scope, so this can only ever answer your own offer.
+    const t = scopeTradeIns(actor, list).find((x) => x.reference === reference)
+    if (!t) return null
+    if (!isAdmin(actor) && t.customerId !== actor.id) throw new AuthzError('You can only answer your own offer.')
+    if (t.status !== 'offer_sent') throw new Error('There is no offer waiting on this request.')
+    if (!accepted && !reason) throw new Error('Please tell us why you are declining.')
+
+    const status = accepted ? 'offer_accepted' : 'offer_declined'
+    t.status = status
+    if (!accepted) t.rejectionReason = reason
+    t.history = [...(t.history || []), [status, Date.now()]]
+    saveJSON(KEYS.tradeIns, list)
+    notifyTradeInCustomer(t, status)
+    return t
   },
   // only requests still in the early stages may be withdrawn by the customer
   async cancel(reference) {
@@ -853,7 +970,11 @@ export const TradeInAPI = {
     const t = list.find((x) => x.reference === reference)
     if (!t) return null
     if (!['submitted', 'valuation_review'].includes(t.status)) throw new Error(`Trade-in ${reference} can no longer be cancelled (status: ${t.status}).`)
-    t.status = 'cancelled'; saveJSON(KEYS.tradeIns, list); return t
+    t.status = 'cancelled'
+    t.history = [...(t.history || []), ['cancelled', Date.now()]]
+    saveJSON(KEYS.tradeIns, list)
+    notifyTradeInCustomer(t, 'cancelled')
+    return t
   },
 }
 

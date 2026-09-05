@@ -1,19 +1,25 @@
 import { toast } from 'sonner'
 import { useAsync } from '@/hooks/useAsync.js'
-import { RepairAPI, TECHS } from '@/services/api.js'
+import { RepairAPI, UserAPI } from '@/services/api.js'
+import { technicianName, techniciansForBranch } from '@/lib/staff.js'
 import { BRANCHES } from '@/data/branches.js'
 import { EmptyState } from '@/components/common/EmptyState.jsx'
 import { Link } from 'react-router-dom'
 
 export default function AssignRepairs(){
   const { data:all=[], refetch } = useAsync(()=>RepairAPI.list(),[])
+  const { data:users=[] } = useAsync(()=>UserAPI.list(),[])
   const unassigned = all.filter(r=>!r.tech && !['Completed','Cancelled'].includes(r.status))
 
   const assign = async (ref, tech)=>{
     if(!tech) return
-    await RepairAPI.update(ref,{ tech })
-    toast.success(`${ref} assigned to ${tech}`)
-    refetch()
+    try{
+      await RepairAPI.update(ref,{ tech })
+      // The technician is notified by the adapter, so the assignment reaches the person who
+      // has to act on it rather than only the record.
+      toast.success(`${ref} assigned to ${technicianName(users, tech)} — they have been notified`)
+      refetch()
+    } catch(e){ toast.error(e.message||'Could not assign that repair') }
   }
 
   return (
@@ -30,9 +36,13 @@ export default function AssignRepairs(){
                 <Link to={`/staff/repairs/${r.ref}`} className="font-bold text-[13.5px] mono-data text-brand">{r.ref}</Link>
                 <div className="text-[12.5px] text-graphite-400">{r.brand} {r.model} · {r.problem} · {b?.area?.split('—')[0]}</div>
               </div>
+              {/* Scoped to the branch holding the device — a technician at another branch
+                  cannot pick it up. */}
               <select defaultValue="" onChange={e=>assign(r.ref,e.target.value)} className="input-field w-auto">
                 <option value="" disabled>Assign technician…</option>
-                {TECHS.map(t=><option key={t} value={t}>{t}</option>)}
+                {techniciansForBranch(users, r.branch).map(t=>(
+                  <option key={t.id} value={t.id}>{t.name}{t.jobTitle?` — ${t.jobTitle}`:''}</option>
+                ))}
               </select>
             </div>
           )})}

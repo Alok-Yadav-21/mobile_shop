@@ -71,7 +71,7 @@ export default function RepairTracking(){
         <div className="surface p-5"><h3 className="font-bold text-[13.5px] mb-4">Progress</h3><RepairTimeline repair={r} audience="customer"/></div>
         <div className="space-y-4">
           <div className="surface p-5"><h3 className="font-bold text-[13.5px] mb-3">Details</h3>
-            {[['Branch',b?.area?.split('—')[0]],['Fulfilment',r.fulfilment],['Technician',r.tech||'—'],['Quote',money(r.quote)],['Booked',fmtDateTime(r.createdAt)]].map(([k,v])=>(
+            {[['Branch',b?.area?.split('—')[0]],['Fulfilment',r.fulfilment],['Technician',r.techName||'—'],['Quote',money(r.quote)],['Booked',fmtDateTime(r.createdAt)]].map(([k,v])=>(
               <div key={k} className="flex justify-between py-2 border-b border-graphite-100 last:border-0 text-[13px]"><span className="text-graphite-400">{k}</span><span className="font-medium">{v}</span></div>
             ))}
           </div>

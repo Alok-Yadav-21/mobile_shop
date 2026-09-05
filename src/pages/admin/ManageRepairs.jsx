@@ -25,7 +25,7 @@ export default function ManageRepairs(){
   let list=all
   if(branch) list=list.filter(r=>r.branch===branch)
   if(status) list=list.filter(r=>r.status===status)
-  if(q.trim()){ const s=q.trim().toLowerCase(); list=list.filter(r=>r.ref.toLowerCase().includes(s)||r.customer?.toLowerCase().includes(s)||r.model?.toLowerCase().includes(s)||r.tech?.toLowerCase().includes(s)) }
+  if(q.trim()){ const s=q.trim().toLowerCase(); list=list.filter(r=>r.ref.toLowerCase().includes(s)||r.customer?.toLowerCase().includes(s)||r.model?.toLowerCase().includes(s)||r.techName?.toLowerCase().includes(s)) }
 
   const archive = async (r)=>{
     await RepairAPI.archive(r.ref)
@@ -58,7 +58,7 @@ export default function ManageRepairs(){
           <tr key={r.ref} className="hover:bg-graphite-50">
             <Td><Link to={`/staff/repairs/${r.ref}`} className="font-bold mono-data text-brand">{r.ref}</Link></Td>
             <Td>{r.brand} {r.model}<div className="text-[11.5px] text-graphite-400">{r.problem}</div></Td>
-            <Td>{r.customer}</Td><Td>{b?.area.split('—')[0]}</Td><Td>{r.tech||'—'}</Td><Td className="mono-data">{money(r.quote)}</Td><Td><StatusBadge status={r.status}/></Td>
+            <Td>{r.customer}</Td><Td>{b?.area.split('—')[0]}</Td><Td>{r.techName||'—'}</Td><Td className="mono-data">{money(r.quote)}</Td><Td><StatusBadge status={r.status}/></Td>
             <Td>
               <div className="flex items-center gap-2">
                 {canArchive && r.status==='Completed' && !r.archived && <button onClick={()=>archive(r)} className="text-[12px] font-semibold text-graphite-500 hover:underline">Archive</button>}

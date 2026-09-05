@@ -2,7 +2,8 @@ import { useParams, Link } from 'react-router-dom'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useAsync } from '@/hooks/useAsync.js'
-import { RepairAPI, TECHS } from '@/services/api.js'
+import { RepairAPI, UserAPI } from '@/services/api.js'
+import { techniciansForBranch } from '@/lib/staff.js'
 import { REPAIR_FLOW, nextStatuses } from '@/constants/status.js'
 import { RepairTimeline } from '@/components/common/RepairTimeline.jsx'
 import { StatusBadge } from '@/components/common/StatusBadge.jsx'
@@ -16,6 +17,7 @@ export default function RepairDetails(){
   const { ref } = useParams(); const { user }=useAuth()
   const { data:r, loading, refetch } = useAsync(()=>RepairAPI.get(ref),[ref])
   const { data:parts=[], refetch:refetchParts } = useAsync(()=>RepairAPI.listParts(ref),[ref])
+  const { data:users=[] } = useAsync(()=>UserAPI.list(),[])
   const [note,setNote]=useState('')
   const [part,setPart]=useState({ name:'', quantity:1, unitCost:'' })
   const [cancelling,setCancelling]=useState(false)
@@ -69,7 +71,10 @@ export default function RepairDetails(){
             {allowedNext.length===0 && <span className="text-[11px] text-graphite-400 block mt-1">No further status changes from here.</span>}
           </label>
           <label className="block"><span className="text-[12.5px] font-semibold text-graphite-600">Technician</span>
-            <select value={r.tech||''} onChange={e=>upd({tech:e.target.value||null})} className="input-field mt-1.5"><option value="">— unassigned —</option>{TECHS.map(t=><option key={t}>{t}</option>)}</select></label>
+            <select value={r.tech||''} onChange={e=>upd({tech:e.target.value||null})} className="input-field mt-1.5">
+              <option value="">— unassigned —</option>
+              {techniciansForBranch(users, r.branch).map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+            </select></label>
           <label className="block"><span className="text-[12.5px] font-semibold text-graphite-600">Quote (£)</span>
             <input type="number" defaultValue={r.quote||''} onBlur={e=>upd({quote:e.target.value?Number(e.target.value):null})} placeholder="89" className="input-field mt-1.5"/></label>
           <label className="block"><span className="text-[12.5px] font-semibold text-graphite-600">Add note</span>

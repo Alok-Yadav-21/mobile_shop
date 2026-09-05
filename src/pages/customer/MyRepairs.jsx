@@ -8,7 +8,7 @@ import { BRANCHES } from '@/data/branches.js'
 import { StatusBadge } from '@/components/common/StatusBadge.jsx'
 import { EmptyState } from '@/components/common/EmptyState.jsx'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog.jsx'
-import { TRADE_IN_LABELS, TRADE_IN_STYLES, customerNextStep } from '@/constants/status.js'
+import { TRADE_IN_STYLES, customerNextStep, tradeInStatusLabel, tradeInNextStep } from '@/constants/status.js'
 import { logAction } from '@/services/auditService.js'
 import { money } from '@/utils/format.js'
 
@@ -57,7 +57,7 @@ export default function MyRepairs(){
         </div>
       )}
 
-      <h2 className="text-[16px] font-bold mb-3">My trade-ins</h2>
+      <h2 className="text-[16px] font-bold mb-3">Devices I&rsquo;m selling</h2>
       {!tradeIns.length ? (
         <div className="surface p-2"><EmptyState title="No trade-ins yet" hint="Sell a device and it'll appear here."/></div>
       ) : (
@@ -65,11 +65,17 @@ export default function MyRepairs(){
           {tradeIns.map(t=>{
             const status = t.status||'submitted'
             return (
-              <div key={t.reference} className="flex items-center justify-between px-5 py-4">
-                <div><div className="font-bold text-[13.5px] mono-data">{t.reference}</div><div className="text-[12.5px] text-graphite-400">{t.brand} {t.model} · {t.conditionGrade||t.condition_grade}</div></div>
-                <div className="flex items-center gap-3">
+              <div key={t.reference} className="flex items-center justify-between px-5 py-4 gap-3 hover:bg-graphite-50 transition-colors">
+                <Link to={`/app/sell/${t.reference}`} className="min-w-0 flex-1">
+                  <div className="font-bold text-[13.5px] mono-data">{t.reference}</div>
+                  <div className="text-[12.5px] text-graphite-400">{t.brand} {t.model} · {t.conditionGrade||t.condition_grade}</div>
+                  {tradeInNextStep(status) && (
+                    <div className="text-[12px] font-semibold text-brand mt-1">{tradeInNextStep(status)}</div>
+                  )}
+                </Link>
+                <div className="flex items-center gap-3 flex-none">
                   <span className="font-semibold text-[13px] mono-data">{money(t.indicativeValue||t.indicative_value)}</span>
-                  <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${TRADE_IN_STYLES[status]}`}>{TRADE_IN_LABELS[status]}</span>
+                  <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${TRADE_IN_STYLES[status]}`}>{tradeInStatusLabel(status,'customer')}</span>
                   {CANCELLABLE_TRADE_IN.includes(status) && <button onClick={()=>setCancelling(t)} className="text-[12px] font-semibold text-rose-600 hover:underline">Cancel</button>}
                 </div>
               </div>

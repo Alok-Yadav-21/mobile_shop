@@ -155,7 +155,7 @@ export default function ManageStaff(){
     try{
       for(const r of deactivating.active){
         await RepairAPI.update(r.ref, { tech: reassignTo })
-        logAction({ user:me, action:'repair.reassign', entityType:'repair', entityId:r.ref, before:{tech:deactivating.staff.name}, after:{tech:reassignTo}, reason:'Technician deactivated' })
+        logAction({ user:me, action:'repair.reassign', entityType:'repair', entityId:r.ref, before:{tech:deactivating.staff.id}, after:{tech:reassignTo}, reason:'Technician deactivated' })
       }
       await UserAPI.setStatus(deactivating.staff.id, 'inactive', me)
       logAction({ user:me, action:'user.status_change', entityType:'user', entityId:deactivating.staff.id, after:{status:'inactive'}, reason })
@@ -316,7 +316,7 @@ export default function ManageStaff(){
           <DialogContent>
             <DialogHeader><DialogTitle>{workloadFor.name}'s workload</DialogTitle></DialogHeader>
             {(()=>{
-              const mine = repairs.filter(r=>r.tech===workloadFor.name)
+              const mine = repairs.filter(r=>r.tech===workloadFor.id)
               const active = mine.filter(r=>!['Completed','Cancelled'].includes(r.status))
               const completed = mine.filter(r=>r.status==='Completed')
               return (
@@ -377,7 +377,7 @@ export default function ManageStaff(){
 }
 
 function DeactivateWithReassignDialog({ staff, activeRepairs, otherStaff, onCancel, onConfirm }){
-  const [reassignTo,setReassignTo]=useState(otherStaff[0]?.name||'')
+  const [reassignTo,setReassignTo]=useState(otherStaff[0]?.id||'')
   const [reason,setReason]=useState('')
   const [busy,setBusy]=useState(false)
   const valid = reason.trim().length>=6 && (otherStaff.length===0 || reassignTo)
@@ -401,7 +401,7 @@ function DeactivateWithReassignDialog({ staff, activeRepairs, otherStaff, onCanc
         </div>
         {otherStaff.length>0 ? (
           <label className="block"><span className="text-[12.5px] font-semibold text-graphite-600">Reassign to</span>
-            <select value={reassignTo} onChange={e=>setReassignTo(e.target.value)} className="input-field mt-1.5">{otherStaff.map(s=><option key={s.id} value={s.name}>{s.name}</option>)}</select></label>
+            <select value={reassignTo} onChange={e=>setReassignTo(e.target.value)} className="input-field mt-1.5">{otherStaff.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
         ) : (
           <p className="text-[12px] text-rose-600">No other active staff available to reassign to — add or activate another technician first.</p>
         )}

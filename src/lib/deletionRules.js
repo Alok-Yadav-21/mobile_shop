@@ -17,7 +17,7 @@ export function customerDeleteBlockers(customer, { repairs=[], orders=[], tradeI
 
 export function staffDeleteBlockers(staffMember, { repairs=[], tradeIns=[], auditLogs=[] }={}){
   const reasons = []
-  const assigned = repairs.filter(r=>r.tech===staffMember.name).length
+  const assigned = repairs.filter(r=>r.tech===staffMember.id).length
   const inspections = tradeIns.filter(t=>t.inspectedBy===staffMember.id).length
   const activity = auditLogs.filter(l=>l.actorId===staffMember.id).length
   if(assigned) reasons.push(`${assigned} repair assignment${assigned===1?'':'s'}`)
@@ -27,7 +27,7 @@ export function staffDeleteBlockers(staffMember, { repairs=[], tradeIns=[], audi
 }
 
 export function staffActiveRepairs(staffMember, repairs=[]){
-  return repairs.filter(r=>r.tech===staffMember.name && !['Completed','Cancelled'].includes(r.status))
+  return repairs.filter(r=>r.tech===staffMember.id && !['Completed','Cancelled'].includes(r.status))
 }
 
 export function productDeleteBlockers(product, { orders=[], stockMoves=[] }={}){

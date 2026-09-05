@@ -3,25 +3,27 @@ import { REPAIR_FLOW, statusLabel } from '@/constants/status.js'
 import { fmtDateTime } from '@/utils/format.js'
 import { Check, X } from 'lucide-react'
 
-// The progress of one repair, read straight from its history. The same component serves the
-// customer tracking page and the staff detail page; `audience` decides whose vocabulary the
-// step names are written in, and defaults to the workshop's.
+// The progress of one journey, read straight from its history.
 //
 // A cancelled repair is shown as it actually happened: the steps it did reach stay completed,
 // the point where it stopped is marked, and the rest are dropped rather than left implying
 // work still to come.
-export function RepairTimeline({ repair, audience = 'internal' }) {
+// The generic journey. A repair and a sale are the same shape — an ordered list of states, a
+// history of [state, timestamp] pairs, and endings that stop the list early — so they share one
+// component rather than one being a lesser copy of the other.
+export function JourneyTimeline({
+  flow, history = [], status, stoppedStates = [], labelFor = (s) => s, stopNote = null,
+}) {
   const reduce = useReducedMotion()
-  const history = repair?.history ?? []
-  const cancelled = repair?.status === 'Cancelled'
+  const cancelled = stoppedStates.includes(status)
 
   const currentIndex = cancelled
-    // Where it got to before being cancelled — the last flow state present in its history.
-    ? REPAIR_FLOW.reduce((last, s, i) => (history.some((h) => h[0] === s) ? i : last), -1)
-    : REPAIR_FLOW.indexOf(repair?.status)
+    // Where it got to before it stopped — the last flow state present in its history.
+    ? flow.reduce((last, s, i) => (history.some((h) => h[0] === s) ? i : last), -1)
+    : flow.indexOf(status)
 
-  // Past the cancellation point there is nothing meaningful to show.
-  const steps = cancelled ? REPAIR_FLOW.slice(0, currentIndex + 1) : REPAIR_FLOW
+  // Past the stopping point there is nothing meaningful to show.
+  const steps = cancelled ? flow.slice(0, currentIndex + 1) : flow
   const reached = Math.max(0, currentIndex)
   const pct = steps.length > 1 ? (reached / (steps.length - 1)) * 100 : 0
 
@@ -29,7 +31,7 @@ export function RepairTimeline({ repair, audience = 'internal' }) {
     <div>
       <div className="flex items-center justify-between mb-4">
         <span className="text-[12px] font-semibold text-graphite-500">
-          {cancelled ? 'Cancelled' : `Step ${reached + 1} of ${REPAIR_FLOW.length}`}
+          {cancelled ? labelFor(status) : `Step ${reached + 1} of ${flow.length}`}
         </span>
         <span className="text-[12px] text-graphite-400 mono-data">
           {cancelled ? '—' : `${Math.round(pct)}%`}
@@ -82,7 +84,7 @@ export function RepairTimeline({ repair, audience = 'internal' }) {
               </span>
               <div className="min-w-0">
                 <div className={`text-sm font-semibold ${!done && !active && !isCancelPoint ? 'text-graphite-400' : ''}`}>
-                  {statusLabel(s, audience)}
+                  {labelFor(s)}
                   {active && <span className="ml-2 text-[11px] font-bold text-brand">In progress</span>}
                 </div>
                 {h && <div className="text-[11.5px] text-graphite-400">{fmtDateTime(h[1])}</div>}
@@ -94,13 +96,26 @@ export function RepairTimeline({ repair, audience = 'internal' }) {
         {cancelled && (
           <div className="flex gap-3 items-start relative pt-1">
             <span className="w-6 h-6 flex-none" aria-hidden="true" />
-            <div className="text-[12.5px] text-rose-600">
-              This repair was cancelled
-              {repair.cancellationReason ? ` — ${repair.cancellationReason}` : '.'}
-            </div>
+            <div className="text-[12.5px] text-rose-600">{stopNote}</div>
           </div>
         )}
       </div>
     </div>
+  )
+}
+
+// One repair's progress. Wraps JourneyTimeline with the repair flow so every existing caller
+// keeps working unchanged; `audience` decides whose vocabulary the step names are written in,
+// and defaults to the workshop's.
+export function RepairTimeline({ repair, audience = 'internal' }) {
+  return (
+    <JourneyTimeline
+      flow={REPAIR_FLOW}
+      history={repair?.history ?? []}
+      status={repair?.status}
+      stoppedStates={['Cancelled']}
+      labelFor={(s) => statusLabel(s, audience)}
+      stopNote={`This repair was cancelled${repair?.cancellationReason ? ` — ${repair.cancellationReason}` : '.'}`}
+    />
   )
 }

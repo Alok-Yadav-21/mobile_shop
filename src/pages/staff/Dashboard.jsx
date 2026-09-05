@@ -28,7 +28,7 @@ export default function Dashboard(){
           <tr key={r.ref} className="hover:bg-graphite-50">
             <Td><Link to={`/staff/repairs/${r.ref}`} className="font-bold mono-data text-brand">{r.ref}</Link></Td>
             <Td>{r.brand} {r.model}<div className="text-[11.5px] text-graphite-400">{r.problem}</div></Td>
-            <Td>{r.customer}</Td><Td>{r.tech||'—'}</Td><Td><StatusBadge status={r.status}/></Td>
+            <Td>{r.customer}</Td><Td>{r.techName||'—'}</Td><Td><StatusBadge status={r.status}/></Td>
           </tr>))}</tbody></Table>
       </div>
     </div>

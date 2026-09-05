@@ -138,3 +138,40 @@ export function customerNextStep(status){
 export function statusLabel(status, audience = 'internal'){
   return audience === 'customer' ? customerStatusLabel(status) : status
 }
+
+// --- the sell journey, said to the customer --------------------------------------------------
+// The repair journey tells the customer where their device is at every step. Selling one did
+// not: the statuses below were rendered raw, no step was announced to the customer, and the one
+// state that exists purely for them to act on — an offer — was actioned by an admin on their
+// behalf. Same treatment as repairs, so both journeys behave the same way.
+export const TRADE_IN_CUSTOMER_LABELS = {
+  submitted: 'Request received',
+  valuation_review: 'Being valued',
+  device_received: 'Device with us',
+  offer_sent: 'Your offer is ready',
+  offer_accepted: 'Offer accepted',
+  offer_declined: 'Offer declined',
+  paid: 'Payment sent',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+}
+
+// Only where the customer is the one everyone is waiting on.
+export const TRADE_IN_NEXT_STEP = {
+  offer_sent: 'Review your offer and accept or decline it.',
+  offer_accepted: 'Send us the device, or bring it into your branch, and we will pay you.',
+}
+
+export function tradeInStatusLabel(status, audience = 'internal'){
+  const map = audience === 'customer' ? TRADE_IN_CUSTOMER_LABELS : TRADE_IN_LABELS
+  return map[status] || TRADE_IN_LABELS[status] || status
+}
+export function tradeInNextStep(status){
+  return TRADE_IN_NEXT_STEP[status] || null
+}
+
+// The states a customer's own sell request passes through, for the tracking timeline. The two
+// endings that are not "paid" — declining the offer, or withdrawing — are shown as a stop on
+// the timeline rather than as steps, exactly as a cancelled repair is.
+export const TRADE_IN_CUSTOMER_FLOW = ['submitted', 'valuation_review', 'offer_sent', 'offer_accepted', 'paid', 'completed']
+export const TRADE_IN_TERMINAL = ['cancelled', 'offer_declined']
