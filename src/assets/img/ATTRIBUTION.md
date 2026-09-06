@@ -44,6 +44,7 @@ All are cropped server-side to 1200×675, because the product card renders a wid
 | `mouse.jpg` | `photo-1615526675221-e763c4ec84f1` | Computer mouse |
 | `keyboard.jpg` | `photo-1561112078-7d24e04c3407` | Grey wireless keyboard |
 | `laptop-sleeve.jpg` | `photo-1611461527944-1a718332613b` | Laptop on grey textile |
+| `hero-laptop.jpg` | `photo-1721333089073-215a56fd710c` | Hands replacing components in an opened laptop — homepage hero, cropped 4:3 |
 
 Rebuild any of them with:
 

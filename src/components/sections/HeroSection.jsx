@@ -1,7 +1,11 @@
 import { Link } from 'react-router-dom'
 import { motion, useReducedMotion } from 'framer-motion'
 import { ArrowRight } from 'lucide-react'
-import heroImg from '@/assets/img/headphones.jpg'
+// A laptop being worked on rather than a product shot: the hero should show what the business
+// does, and repairs are the business — the shop is attached to it. Cropped to 4:3 to match the
+// frame below, and its own file so it is not the same picture a customer meets again as a
+// product card further down the page.
+import heroImg from '@/assets/img/hero-laptop.jpg'
 import { BRAND } from '@/constants/brand.js'
 
 // Light retail hero, following the reference design: a soft grey slab, an oversized ghost
@@ -57,7 +61,7 @@ export function HeroSection() {
           >
             <img
               src={heroImg}
-              alt="Headphones on the Virktech repair bench"
+              alt="A Virktech technician replacing components inside an opened laptop"
               className="w-full aspect-[4/3] object-cover rounded-2xl"
             />
           </motion.div>
