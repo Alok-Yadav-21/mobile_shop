@@ -29,7 +29,10 @@ export default function ProductDetails(){
           <img src={product.img} alt={product.name} className="w-full aspect-square object-cover rounded-xl"/>
         </div>
         <div>
-          <div className="text-[11.5px] font-bold uppercase tracking-wide text-brand">{product.category}</div>
+          <div className="flex items-center gap-2 text-[11.5px] font-bold uppercase tracking-wide">
+            <span className="text-brand">{product.category}</span>
+            {product.brand && <><span className="text-graphite-300" aria-hidden="true">·</span><span className="text-graphite-400">{product.brand}</span></>}
+          </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-2">{product.name}</h1>
           <div className="flex items-center gap-3 mt-3">
             <span className="flex items-center gap-1 text-amber-500 text-[13px]"><Star size={14} fill="currentColor"/> {product.rating}</span>

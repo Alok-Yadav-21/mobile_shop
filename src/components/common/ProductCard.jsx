@@ -15,7 +15,10 @@ export function ProductCard({ p }){
         <span className="absolute top-3 left-3 bg-ink-900 text-white text-[10.5px] font-semibold px-2 py-1 rounded-md">{p.cond}</span>
       </div>
       <div className="p-4">
-        <div className="text-[10.5px] font-bold uppercase tracking-wide text-brand">{p.category}</div>
+        <div className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-wide">
+          <span className="text-brand">{p.category}</span>
+          {p.brand && <><span className="text-graphite-300" aria-hidden="true">·</span><span className="text-graphite-400">{p.brand}</span></>}
+        </div>
         <h3 className="font-bold text-[14.5px] mt-1 leading-snug">{p.name}</h3>
         {/* Two lines of the description on the card. A shelf of eight identical-looking phones
             is hard to choose from on name and price alone. */}

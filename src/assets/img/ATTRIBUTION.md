@@ -37,6 +37,13 @@ All are cropped server-side to 1200×675, because the product card renders a wid
 | `charger.jpg` | `photo-1603539444875-76e7684265f6` | White USB cable |
 | `powerbank.jpg` | `photo-1566554738544-d962991c3fee` | Phone beside a power bank |
 | `phone-case.jpg` | `photo-1535157412991-2ef801c1748b` | Four assorted phone cases |
+| `apple-watch.jpg` | `photo-1546868871-7041f2a55e12` | Apple Watch with a sport band |
+| `airpods.jpg` | `photo-1572569511254-d8f925fe2cbb` | Apple AirPods |
+| `sony-headphones.jpg` | `photo-1577174881658-0f30ed549adc` | White Sony on-ear headphones |
+| `thinkpad.jpg` | `photo-1626890871138-a286af648586` | Lenovo ThinkPad keyboard and trackpoint |
+| `mouse.jpg` | `photo-1615526675221-e763c4ec84f1` | Computer mouse |
+| `keyboard.jpg` | `photo-1561112078-7d24e04c3407` | Grey wireless keyboard |
+| `laptop-sleeve.jpg` | `photo-1611461527944-1a718332613b` | Laptop on grey textile |
 
 Rebuild any of them with:
 
@@ -54,3 +61,9 @@ Regulations. Photograph the actual unit before selling it.
 
 Showing a manufacturer's product (an iPhone, a Galaxy) is fine for a shop that repairs and
 resells them — that is nominative use. Do not use their logos as your own branding.
+
+The `brand` on a product describes the item being listed, not the exact unit photographed, and
+needs checking against real stock for the same reason the photo does. Do not take a brand from
+an Unsplash contributor's alt text: `thinkpad.jpg` arrived described as "black toshiba laptop"
+and is unmistakably a Lenovo ThinkPad. Every brand in the catalogue was set by opening the
+image.
