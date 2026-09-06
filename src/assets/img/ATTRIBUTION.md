@@ -27,6 +27,16 @@ All are cropped server-side to 1200×675, because the product card renders a wid
 | `earbuds.jpg` | `photo-1606220588913-b3aacb4d2f46` | Bluetooth earbuds |
 | `earpods.jpg` | `photo-1606741965326-cb990ae01bb2` | Earbuds with charging case |
 | `speaker.jpg` | `photo-1589003077984-894e133dabab` | Portable Bluetooth speaker |
+| `macbook-air-m2.jpg` | `photo-1632079387592-91f5a4590197` | Silver laptop on a table |
+| `iphone-trio.jpg` | `photo-1616410011236-7a42121dd981` | Three handsets in red, white and blue |
+| `pixel.jpg` | `photo-1598965402089-897ce52e8355` | Black Android handset in hand |
+| `dell-xps.jpg` | `photo-1593642702821-c8da6771f0c6` | Laptop on a white table |
+| `gaming-laptop.jpg` | `photo-1603302576837-37561b2e2302` | Laptop with a bright colourful screen |
+| `tablet-mini.jpg` | `photo-1637152736123-8a027366b07a` | Small tablet on a table |
+| `fitness-band.jpg` | `photo-1576243345690-4e4b79b63288` | Fitness tracker band |
+| `charger.jpg` | `photo-1603539444875-76e7684265f6` | White USB cable |
+| `powerbank.jpg` | `photo-1566554738544-d962991c3fee` | Phone beside a power bank |
+| `phone-case.jpg` | `photo-1535157412991-2ef801c1748b` | Four assorted phone cases |
 
 Rebuild any of them with:
 

@@ -17,6 +17,9 @@ export function ProductCard({ p }){
       <div className="p-4">
         <div className="text-[10.5px] font-bold uppercase tracking-wide text-brand">{p.category}</div>
         <h3 className="font-bold text-[14.5px] mt-1 leading-snug">{p.name}</h3>
+        {/* Two lines of the description on the card. A shelf of eight identical-looking phones
+            is hard to choose from on name and price alone. */}
+        {p.desc && <p className="text-[12px] text-graphite-400 mt-1 leading-snug line-clamp-2">{p.desc}</p>}
         <div className="flex items-center gap-1 text-amber-500 text-[11.5px] mt-1.5"><Star size={12} fill="currentColor"/> {p.rating}</div>
         <div className="flex items-center justify-between mt-3">
           <div className="font-extrabold text-[16px] mono-data">{money(p.price)} {p.was&&<span className="text-graphite-400 line-through text-[12px] font-medium ml-1">{money(p.was)}</span>}</div>
