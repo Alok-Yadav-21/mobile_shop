@@ -41,7 +41,8 @@ const BRANCH_WEIGHT = { wol: 1.5, blv: 1.25, sid: 1.15, nel: 1, orp: 0.9, wbs: 0
 export function generateOrders(days = 90, seed = 776211) {
   const rand = rng(seed)
   const out = []
-  const start = Date.now() - days * DAY
+  const generatedAt = Date.now()
+  const start = generatedAt - days * DAY
   let n = 0
 
   for (let d = 0; d < days; d++) {
@@ -80,8 +81,19 @@ export function generateOrders(days = 90, seed = 776211) {
 
         // A small tail of refunds/cancellations, so the reports have to exclude them rather
         // than every seeded order counting as clean revenue.
+        //
+        // Everything older than a couple of days is finished, because in a real shop it would
+        // be: an order from six weeks ago is not still waiting to be picked. They all used to
+        // sit at 'paid', which was fine while nothing read this as a queue — but the branch's
+        // "Orders to fulfil" page then opened on four hundred orders that needed nothing doing.
+        // Delivered and collected are both earning statuses, so the revenue reports are
+        // unchanged (see isEarning in src/lib/reporting.js).
         const roll = rand()
-        const status = roll > 0.975 ? 'refunded' : roll > 0.96 ? 'cancelled' : 'paid'
+        const settled = createdAt < generatedAt - 2 * DAY
+        const status = roll > 0.975 ? 'refunded'
+          : roll > 0.96 ? 'cancelled'
+          : settled ? (paymentMethod === 'cash' ? 'collected' : 'delivered')
+          : roll > 0.6 ? 'paid' : roll > 0.3 ? 'processing' : 'ready'
 
         out.push({
           reference: 'VT-ORD-' + (20000 + n),

@@ -25,6 +25,7 @@ export const STAFF_NAV = [
   { label:'Dashboard', to:'/staff', icon:LayoutDashboard, end:true },
   { label:'Assigned repairs', to:'/staff/repairs', icon:Wrench },
   { label:'Customer requests', to:'/staff/requests', icon:ClipboardList },
+  { label:'Orders to fulfil', to:'/staff/orders', icon:ShoppingBag },
   { label:'Stock tasks', to:'/staff/stock', icon:Boxes },
   { label:'My hours & pay', to:'/staff/shifts', icon:CalendarClock },
   { label:'My account', to:'/staff/account', icon:User },

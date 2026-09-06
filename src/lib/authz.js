@@ -56,15 +56,23 @@ export function requireBranchScope(actor, branchId) {
 // booked in before an admin has assigned it to anyone, so an unassigned repair is open to the
 // branch — that is the intake desk, not a loophole. The moment it is assigned it belongs to one
 // person.
-export function requireAssignedTechnician(actor, repair) {
+export function requireAssignee(actor, record, { key = 'tech', noun = 'job' } = {}) {
   requireAuth(actor)
   if (isAdmin(actor)) return actor
-  if (!repair?.tech) return actor
-  if (repair.tech !== actor.id) {
-    throw new AuthzError('This repair is assigned to another technician.')
+  const holder = record?.[key]
+  if (!holder) return actor
+  if (holder !== actor.id) {
+    throw new AuthzError(`This ${noun} is assigned to a colleague.`)
   }
   return actor
 }
+
+export const requireAssignedTechnician = (actor, repair) =>
+  requireAssignee(actor, repair, { key: 'tech', noun: 'repair' })
+
+// A product order is fulfilled by the person it was given to, on the same terms.
+export const requireAssignedFulfiller = (actor, order) =>
+  requireAssignee(actor, order, { key: 'assignedTo', noun: 'order' })
 
 // Ownership check for records keyed by user id (shifts, orders, addresses).
 export function requireSelfOrAdmin(actor, ownerId) {
