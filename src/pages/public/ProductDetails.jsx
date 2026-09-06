@@ -40,10 +40,15 @@ export default function ProductDetails(){
             {product.was && <span className="text-graphite-400 line-through text-[16px] mono-data">{money(product.was)}</span>}
           </div>
 
+          {/* The item's own description. This used to be one of two sentences generated from
+              the condition, so every used phone on the site read identically and told a buyer
+              nothing about the one in front of them — which is the whole question with
+              second-hand stock. The generated line is kept as a fallback for anything added
+              without a description yet. */}
           <p className="text-[14.5px] text-graphite-500 mt-4 leading-relaxed max-w-md">
-            {product.cond==='Refurbished'
+            {product.desc || (product.cond==='Refurbished'
               ? 'Fully diagnostic-checked and graded by our technicians, with a 3-month warranty included.'
-              : `${product.cond} condition, ready to ship or collect in-branch. Backed by our standard warranty.`}
+              : `${product.cond} condition, ready to ship or collect in-branch. Backed by our standard warranty.`)}
           </p>
 
           <div className="flex items-center gap-4 mt-7">
@@ -58,7 +63,19 @@ export default function ProductDetails(){
           </div>
 
           <div className="grid sm:grid-cols-2 gap-3 mt-8 pt-6 border-t border-graphite-200">
-            <div className="flex items-center gap-2.5 text-[13px] text-graphite-600"><ShieldCheck size={17} className="text-brand"/> 3-month warranty included</div>
+            {/* Was hardcoded to "3-month warranty included" on every listing, whatever its
+                condition — so a used trade-in promised three months while the warranty policy
+                covers only new and certified refurbished stock. The site was contradicting
+                itself in writing, on the page where somebody decides to buy.
+                Used says only what is true without a policy behind it: statutory rights apply
+                to second-hand goods regardless. Replace that line once a used-stock warranty
+                is decided, and say the same thing on /warranty. */}
+            <div className="flex items-center gap-2.5 text-[13px] text-graphite-600">
+              <ShieldCheck size={17} className="text-brand"/>
+              {product.cond === 'Refurbished' ? '3-month warranty included'
+                : product.cond === 'New' ? 'Full manufacturer warranty'
+                : 'Covered by your statutory rights'}
+            </div>
             <div className="flex items-center gap-2.5 text-[13px] text-graphite-600"><Truck size={17} className="text-brand"/> Collect in-branch or delivered</div>
           </div>
         </div>
