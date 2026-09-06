@@ -81,9 +81,9 @@ export default function BranchOrders(){
             <thead><tr><Th>Reference</Th><Th>Customer</Th><Th>Items</Th><Th>Total</Th><Th>Status</Th><Th>Placed</Th></tr></thead>
             <tbody>{list.map(o=>{
               // Only the person holding it may move it, and the adapter enforces that whatever
-              // is rendered — so a colleague's order shows where it has got to, not a control
-              // that would be refused.
-              const mineToMove = o.assignedTo===user?.id
+              // is rendered — so a colleague's order, or one nobody has been given, shows where
+              // it has got to rather than a control that would be refused.
+              const mineToMove = !!o.assignedTo && o.assignedTo===user?.id
               return (
                 <tr key={o.reference} className="hover:bg-graphite-50">
                   <Td className="font-bold mono-data text-brand">{o.reference}</Td>

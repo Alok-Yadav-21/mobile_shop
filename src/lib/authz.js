@@ -48,19 +48,28 @@ export function requireBranchScope(actor, branchId) {
   return actor
 }
 
-// A repair is worked by the technician it was given to. Any staff member at the branch could
-// previously advance anybody's job, so two people could move the same device in opposite
-// directions and the history would not say who did what.
+// A job is worked by the person it was given to, and by nobody else.
 //
-// The exception is a repair nobody holds yet. A device handed across the counter has to be
-// booked in before an admin has assigned it to anyone, so an unassigned repair is open to the
-// branch — that is the intake desk, not a loophole. The moment it is assigned it belongs to one
-// person.
+// Any staff member at the branch could once advance anybody's job, so two people could move the
+// same device in opposite directions and the history would not say who did what. Narrowing that
+// to the assignee left one gap: a job nobody held was still open to the whole branch. It is not
+// any more. Work is done by whoever it was given to, and until it is given to somebody there is
+// nobody whose job it is.
+//
+// The practical consequence is deliberate: a booking waits for an admin to assign it before the
+// branch can move it on. That is the step where a person decides who is responsible, and
+// /admin/assign exists for it and notifies the technician chosen.
+//
+// Admins pass, but that is not a way round the rule — an admin has no capability to record
+// repair progress at all (see updateRepairStatus). It matters for the things they are allowed
+// to do, such as cancelling, and for order status, which they kept.
 export function requireAssignee(actor, record, { key = 'tech', noun = 'job' } = {}) {
   requireAuth(actor)
   if (isAdmin(actor)) return actor
   const holder = record?.[key]
-  if (!holder) return actor
+  if (!holder) {
+    throw new AuthzError(`This ${noun} has not been assigned to anyone yet.`)
+  }
   if (holder !== actor.id) {
     throw new AuthzError(`This ${noun} is assigned to a colleague.`)
   }

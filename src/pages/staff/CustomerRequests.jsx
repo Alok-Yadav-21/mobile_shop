@@ -51,11 +51,11 @@ export default function CustomerRequests(){
               <div><Link to={`/staff/repairs/${r.ref}`} className="font-bold text-[13.5px] mono-data text-brand">{r.ref}</Link><div className="text-[12.5px] text-graphite-400">{r.brand} {r.model} · {r.customer} · {fmtDateTime(r.createdAt)}</div></div>
               <div className="flex items-center gap-3">
                 <StatusBadge status={r.status}/>
-                {/* Booking a device in is open while nobody holds the repair — that is the
-                    counter. Once an admin has assigned it, it is that technician's to move. */}
-                {(!r.tech || r.tech===user?.id)
+                {/* Booking a device in is a status change like any other, so it belongs to
+                    whoever holds the job. A booking nobody holds is waiting on an admin. */}
+                {r.tech===user?.id
                   ? <button onClick={()=>accept(r.ref)} className="btn btn-brand btn-sm">Mark received</button>
-                  : <span className="text-[11.5px] text-graphite-400">Assigned to {r.techName}</span>}
+                  : <span className="text-[11.5px] text-graphite-400">{r.tech ? `Assigned to ${r.techName}` : 'Waiting to be assigned'}</span>}
               </div>
             </div>
           ))}
