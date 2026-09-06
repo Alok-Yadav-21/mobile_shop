@@ -24,12 +24,15 @@ export default function RepairDetails(){
   // branch — a device handed across the counter has to be booked in before an admin has given
   // it to anyone. Once it is assigned it belongs to one person.
   const canRecordProgress = can(user?.role, 'updateRepairStatus')
-  const assignedToSomeoneElse = !!r?.tech && r.tech !== user?.id
-  const mine = canRecordProgress && !assignedToSomeoneElse
+  const mine = canRecordProgress && !!r?.tech && r.tech === user?.id
   const hasQuote = r?.quote != null && Number(r.quote) > 0
+  // Three different reasons the controls are read-only, and they need different actions from
+  // the reader: wait for an admin, ask a colleague, or nothing (you are the admin).
   const blockedReason = !canRecordProgress
     ? 'Recorded by the branch'
-    : `Assigned to ${r?.techName || 'another technician'}`
+    : !r?.tech
+      ? 'Waiting to be assigned'
+      : `Assigned to ${r?.techName || 'another technician'}`
   const [note,setNote]=useState('')
   const [part,setPart]=useState({ name:'', quantity:1, unitCost:'' })
   const [cancelling,setCancelling]=useState(false)

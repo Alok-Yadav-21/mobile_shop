@@ -252,11 +252,17 @@ describe('requireAssignedTechnician', () => {
     expect(() => requireAssignedTechnician(sam, { tech: 'u4' })).toThrow(AuthzError)
   })
 
-  // A device handed across the counter has to be booked in before an admin has assigned it to
-  // anyone, so an unassigned repair is open to the branch. That is the intake desk.
-  it('leaves an unassigned repair open to the branch', () => {
-    expect(() => requireAssignedTechnician(sam, { tech: null })).not.toThrow()
-    expect(() => requireAssignedTechnician(sam, {})).not.toThrow()
+  // This used to leave an unassigned repair open to the whole branch, as an intake desk. It is
+  // closed: until a job is given to somebody there is nobody whose job it is, and an admin
+  // assigning it is the step where that is decided.
+  it('refuses a job nobody has been given yet', () => {
+    expect(() => requireAssignedTechnician(sam, { tech: null })).toThrow(AuthzError)
+    expect(() => requireAssignedTechnician(sam, {})).toThrow(AuthzError)
+  })
+
+  it('says which of the two reasons it refused for, so the branch knows what to do', () => {
+    expect(() => requireAssignedTechnician(sam, { tech: null })).toThrow(/not been assigned/i)
+    expect(() => requireAssignedTechnician(sam, { tech: 'u4' })).toThrow(/assigned to a colleague/i)
   })
 
   it('does not stand in an admin’s way', () => {
