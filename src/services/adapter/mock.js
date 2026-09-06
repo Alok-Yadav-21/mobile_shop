@@ -1348,6 +1348,32 @@ export const NotificationAPI = {
     n.read = true
     saveJSON(KEYS.notifications, list); return n
   },
+  // Clearing the bell without opening twenty things first. Both of these act on the caller's
+  // own notifications and nothing else — the filter is by actor id rather than by whatever the
+  // page passes, so there is no argument that could widen them to somebody else's.
+  async markAllRead() {
+    await delay(60)
+    const actor = requireAuth(currentActor())
+    const list = loadJSON(KEYS.notifications, [])
+    let changed = 0
+    for (const n of list) {
+      if (n.customerId === actor.id && !n.read) { n.read = true; changed += 1 }
+    }
+    if (changed) saveJSON(KEYS.notifications, list)
+    return { markedRead: changed }
+  },
+  // Removes them. A notification is an announcement of something that lives elsewhere — the
+  // repair, the sale, the order — so clearing one loses nothing except the announcement, and
+  // a bell that cannot be emptied stops being read at all.
+  async clear({ readOnly = false } = {}) {
+    await delay(60)
+    const actor = requireAuth(currentActor())
+    const list = loadJSON(KEYS.notifications, [])
+    const keep = list.filter((n) => n.customerId !== actor.id || (readOnly && !n.read))
+    const removed = list.length - keep.length
+    if (removed) saveJSON(KEYS.notifications, keep)
+    return { removed }
+  },
 }
 
 export const SettingsAPI = {

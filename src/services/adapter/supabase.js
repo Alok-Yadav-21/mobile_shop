@@ -708,6 +708,23 @@ export const NotificationAPI = {
     if (error) throw error
     return data
   },
+  // Both scoped to the caller by RLS rather than by a filter written here: the policies on
+  // notifications restrict every row to its own profile, so "mine" is the only thing these can
+  // reach even though the statement does not say so.
+  async markAllRead() {
+    assertConnected()
+    const { data, error } = await supabase.from('notifications').update({ read: true }).eq('read', false).select('id')
+    if (error) throw error
+    return { markedRead: data?.length ?? 0 }
+  },
+  async clear({ readOnly = false } = {}) {
+    assertConnected()
+    let q = supabase.from('notifications').delete()
+    if (readOnly) q = q.eq('read', true)
+    const { data, error } = await q.select('id')
+    if (error) throw error
+    return { removed: data?.length ?? 0 }
+  },
 }
 
 export const SettingsAPI = {
