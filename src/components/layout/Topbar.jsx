@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { Bell, Search, Menu, Volume2, VolumeX } from 'lucide-react'
+import { Bell, Search, Menu, Volume2, VolumeX, CheckCheck, Trash2 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth.js'
 import { useAsync } from '@/hooks/useAsync.js'
 import { NotificationAPI } from '@/services/api.js'
@@ -40,6 +40,19 @@ export function Topbar({ title, nav, navTitle }) {
     if (newArrivals(seenIds.current, notifications).length > 0) playNotificationChime()
     seenIds.current = ids
   }, [notifications])
+
+  const markAllRead = async () => {
+    try { await NotificationAPI.markAllRead(); refetch() } catch { /* non-fatal */ }
+  }
+  const clearAll = async () => {
+    try {
+      await NotificationAPI.clear()
+      // Reset the watermark too, or every notification still on the server would look new the
+      // next time the list came back and would chime as if it had just arrived.
+      seenIds.current = null
+      refetch()
+    } catch { /* non-fatal */ }
+  }
 
   const toggleMuted = () => {
     const next = !muted
@@ -119,6 +132,24 @@ export function Topbar({ title, nav, navTitle }) {
               </button>
               {unread.length > 0 && <span className="text-[11.5px] text-brand font-semibold">{unread.length} new</span>}
             </div>
+
+            {notifications.length > 0 && (
+              <div className="px-2 py-1.5 border-b border-graphite-100 flex items-center gap-1">
+                <button
+                  onClick={markAllRead}
+                  disabled={unread.length === 0}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-[12px] font-semibold text-graphite-500 hover:text-brand hover:bg-graphite-50 disabled:opacity-40 disabled:hover:text-graphite-500 disabled:hover:bg-transparent transition-colors"
+                >
+                  <CheckCheck size={13} /> Mark all read
+                </button>
+                <button
+                  onClick={clearAll}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-[12px] font-semibold text-graphite-500 hover:text-rose-600 hover:bg-rose-50 transition-colors ml-auto"
+                >
+                  <Trash2 size={13} /> Clear all
+                </button>
+              </div>
+            )}
             <div className="max-h-80 overflow-y-auto">
               {notifications.length === 0 ? (
                 <p className="px-4 py-8 text-center text-[12.5px] text-graphite-400">Nothing yet.</p>
