@@ -50,6 +50,7 @@ const AssignedRepairs = lazy(()=>import('@/pages/staff/AssignedRepairs.jsx'))
 const RepairDetails = lazy(()=>import('@/pages/staff/RepairDetails.jsx'))
 const CustomerRequests = lazy(()=>import('@/pages/staff/CustomerRequests.jsx'))
 const StockTasks = lazy(()=>import('@/pages/staff/StockTasks.jsx'))
+const BranchOrders = lazy(()=>import('@/pages/staff/BranchOrders.jsx'))
 const MyShifts = lazy(()=>import('@/pages/staff/MyShifts.jsx'))
 const StaffAccount = lazy(()=>import('@/pages/staff/Account.jsx'))
 // admin
@@ -132,6 +133,7 @@ export default function AppRoutes(){
           <Route path="repairs" element={<AssignedRepairs/>}/>
           <Route path="repairs/:ref" element={<RepairDetails/>}/>
           <Route path="requests" element={<CustomerRequests/>}/>
+          <Route path="orders" element={<BranchOrders/>}/>
           <Route path="stock" element={<StockTasks/>}/>
           <Route path="shifts" element={<MyShifts/>}/>
           <Route path="account" element={<StaffAccount/>}/>

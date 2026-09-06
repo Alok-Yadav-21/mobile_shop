@@ -19,6 +19,7 @@ import {
 import { getSession } from '@/services/session.js'
 import {
   requireAuth, requireCan, requireSelfOrAdmin, requireBranchScope, requireAssignedTechnician,
+  requireAssignedFulfiller,
   isAdmin, isStaff, isCustomer,
   scopeRepairs, scopeOrders, scopeShifts, scopeTradeIns, scopeUsers, scopeOwned, redactUser,
   AuthzError,
@@ -227,6 +228,31 @@ function notifyTechnicianAssigned(repair, staffId, assignedBy = null) {
     body: `${device} — ${repair.problem || 'repair'}.${assignedBy ? ` Assigned by ${assignedBy}.` : ''}`,
     ref: repair.ref,
     link: `/staff/repairs/${repair.ref}`,
+  })
+}
+
+function notifyOrderAssigned(order, staffId, assignedBy = null) {
+  const staff = loadJSON(KEYS.users, seedUsers()).find((u) => u.id === staffId)
+  if (!staff) return
+  const count = (order.items || []).reduce((n, i) => n + (i.quantity || 1), 0)
+  notifyUser(staff.id, {
+    title: `${order.reference} to fulfil`,
+    body: `${count} item${count === 1 ? '' : 's'}, ${formatGBP(order.total || 0)}.${assignedBy ? ` Assigned by ${assignedBy}.` : ''}`,
+    ref: order.reference,
+    link: '/staff/orders',
+  })
+}
+
+function notifyOrderUnassigned(order, staffId, newStaffId) {
+  const users = loadJSON(KEYS.users, seedUsers())
+  const staff = users.find((u) => u.id === staffId)
+  if (!staff) return
+  const taker = newStaffId ? users.find((u) => u.id === newStaffId)?.name : null
+  notifyUser(staff.id, {
+    title: `${order.reference} is no longer yours`,
+    body: taker ? `Now with ${taker}.` : 'Taken off your list.',
+    ref: order.reference,
+    link: '/staff/orders',
   })
 }
 
@@ -821,10 +847,15 @@ export const OrderAPI = {
   },
   async updateStatus(ref, status) {
     await delay()
-    requireCan(currentActor(), 'manageOrders')
+    const actor = requireAuth(currentActor())
+    requireCan(actor, 'updateOrderStatus')
     const list = loadJSON(KEYS.orders, seedOrders())
-    const o = list.find((x) => x.reference === ref)
+    // Resolved out of the caller's own scope, so staff can only reach their own branch's orders.
+    const o = scopeOrders(actor, list).find((x) => x.reference === ref)
     if (!o) return null
+    // An order that has been given to somebody is theirs to move. One nobody holds is open to
+    // the branch, the same way an unassigned repair is open to the counter.
+    requireAssignedFulfiller(actor, o)
     const previous = o.status
     o.status = status
     o.history = [...(o.history || []), [status, Date.now()]]
@@ -832,6 +863,29 @@ export const OrderAPI = {
     // An order moving is as much the customer's business as a repair moving. Without this an
     // admin marked an order dispatched and nothing reached the person waiting for it.
     if (status !== previous) notifyOrderCustomer(o, status)
+    return o
+  },
+  // Handing an order to somebody to fulfil. Assigning also sets the branch when the order has
+  // none — a web checkout arrives with no branch behind it, and scopeOrders filters staff to
+  // their own, so without this the person assigned could not see the order they were given.
+  async assign(ref, staffId) {
+    await delay()
+    const actor = requireAuth(currentActor())
+    requireCan(actor, 'assignOrder')
+    const list = loadJSON(KEYS.orders, seedOrders())
+    const o = list.find((x) => x.reference === ref)
+    if (!o) return null
+    const previous = o.assignedTo ?? null
+    if (previous === (staffId ?? null)) return o
+
+    const staff = staffId ? loadJSON(KEYS.users, seedUsers()).find((u) => u.id === staffId) : null
+    if (staffId && !staff) throw new Error('That staff account no longer exists.')
+    o.assignedTo = staffId ?? null
+    if (staff?.branch) o.branch = staff.branch
+    saveJSON(KEYS.orders, list)
+
+    if (previous) notifyOrderUnassigned(o, previous, staffId ?? null)
+    if (staffId) notifyOrderAssigned(o, staffId, actor?.name)
     return o
   },
   // eligible = not yet dispatched/completed; restores stock for each line item.

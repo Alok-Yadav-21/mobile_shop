@@ -47,6 +47,12 @@ const CAPABILITIES = {
 
   // orders / payments
   manageOrders: [ADMIN],
+  // Picking, packing and dispatching happen at a branch, so the shop floor records them. The
+  // admin keeps it too: a web order arrives with no branch behind it, and somebody has to be
+  // able to move one that nobody is assigned to yet.
+  updateOrderStatus: [STAFF, ADMIN],
+  // Who fulfils it is the admin's call, exactly as it is for a repair.
+  assignOrder: [ADMIN],
   refundOrder: [ADMIN],
 
   // trade-ins
