@@ -31,6 +31,7 @@ import {
 } from '@/constants/status.js'
 import { locatePostcode, branchesByDistance } from '@/lib/geo.js'
 import { nextReference } from '@/lib/references.js'
+import { assertMayPatchRepair, assertMayAssign } from '@/lib/repairRules.js'
 import { notifyChange } from '@/services/liveStore.js'
 import { redactUnsentQuote, QUOTE_SENT_STATUS } from '@/lib/quotes.js'
 
@@ -342,67 +343,14 @@ export const RepairAPI = {
     const r = scopeRepairs(actor, list).find((x) => x.ref === ref)
     if (!r) return null
 
-    // What a customer may do to their own repair: withdraw it before the device is taken in,
-    // and answer a quote once one has been put to them. Everything else is staff territory.
-    //
-    // Answering a quote used to be neither. The guard admitted cancellations only, so the
-    // Approve button on the tracking page threw on every click — and Reject threw too, because
-    // a repair at "Quote awaiting approval" is past the point where withdrawing is allowed. The
-    // whole approval step was unreachable: staff sent a quote and the customer had no way to
-    // respond to it, which is the one thing that status exists for.
-    if (isCustomer(actor)) {
-      const keys = Object.keys(patch)
-      const cancelShaped = patch.status === 'Cancelled'
-        && keys.every((k) => ['status', 'cancellationReason'].includes(k))
-      const answeringQuote = r.status === QUOTE_SENT_STATUS
-
-      const approving = answeringQuote && patch.status === 'Repair in progress' && keys.every((k) => k === 'status')
-      const declining = answeringQuote && cancelShaped
-      const withdrawing = cancelShaped && customerCanCancelRepair(r)
-
-      if (!approving && !declining && !withdrawing) {
-        if (cancelShaped) throw new Error('This repair can no longer be cancelled online — please call the branch.')
-        throw new Error('You can only cancel your own booking, or answer a quote you have been sent.')
-      }
-    } else {
-      // Checked per field rather than once for the whole patch. A single blanket check was
-      // fine only while staff and admins had identical rights over a repair; the moment they
-      // did not, it demanded the progress capability of an admin patching nothing but `tech`,
-      // and blocked the one thing an admin is supposed to do here.
-      const { status, tech, cancellationReason, ...workshopFields } = patch
-
-      if (status !== undefined && status !== r.status) {
-        if (status === 'Cancelled') {
-          // Cancelling has its own capability, so an admin can still call a repair off without
-          // being able to walk one through the workshop flow.
-          requireCan(actor, 'cancelRepair')
-        } else {
-          requireCan(actor, 'updateRepairStatus')
-          requireAssignedTechnician(actor, r)
-
-          // A quote with no figure on it is not a quote. Sending one put "Your approval needed"
-          // in front of the customer with nothing to approve — and their only way forward was
-          // to approve an amount nobody had named, or decline it.
-          if (status === QUOTE_SENT_STATUS) {
-            const amount = workshopFields.quote !== undefined ? workshopFields.quote : r.quote
-            if (amount == null || !(Number(amount) > 0)) {
-              throw new Error('Enter the quote amount before sending it to the customer.')
-            }
-          }
-        }
-      }
-      // The quote, notes and everything else describing the work are the branch's record.
-      if (Object.keys(workshopFields).length > 0) {
-        requireCan(actor, 'updateRepairStatus')
-        requireAssignedTechnician(actor, r)
-      }
-      // `tech` is deliberately absent from both checks — assignment is guarded on its own below.
-    }
+    // One shared decision, in src/lib/repairRules.js, so the Supabase adapter applies exactly
+    // the same rules rather than a second implementation that drifts from this one.
+    assertMayPatchRepair(actor, r, patch)
 
     // Who works a job is the admin's call. A technician may take a repair all the way through,
     // but may not hand it to a colleague or take one off them — that is a rota decision, and
     // letting it happen from the job screen means work moves with no record of who moved it.
-    if (patch.tech !== undefined && patch.tech !== r.tech) requireCan(actor, 'assignTechnician')
+    assertMayAssign(actor, r, patch)
 
     // Captured before the write: `r` is a filtered reference to the stored row, not a copy, so
     // assigning the patch updates it in place and a later comparison against it would always
