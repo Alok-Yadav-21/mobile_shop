@@ -326,6 +326,32 @@ select test_reads(
   $$select 1 from trade_in_status_history h join trade_in_requests t on t.id = h.trade_in_id where t.reference = 'TST-TI-1'$$,
   4, 'every trade-in status change was logged');
 
+-- ---------------------------------------------------------------------------------------
+-- References are issued by the database, and never twice
+-- ---------------------------------------------------------------------------------------
+\echo ''
+\echo '== reference numbers =='
+
+select become(:cust1_id::uuid);
+
+-- Two bookings made without naming a reference must not collide. Client-side max-plus-one
+-- cannot promise this; a sequence can.
+insert into repairs (customer_id, branch_id, device_category, brand, model, problem)
+select :cust1_id::uuid, 'tst', 'iPhone', 'Apple', 'iPhone 15', 'Screen ' || g
+from generate_series(1, 25) g;
+
+select test_reads(
+  $$select reference from repairs where problem like 'Screen %' group by reference having count(*) > 1$$,
+  0, 'no two repairs were issued the same reference');
+
+select test_reads(
+  $$select 1 from repairs where reference in ('SPR-4805','SPR-4806','SPR-4807','SPR-4808') and problem like 'Screen %'$$,
+  0, 'no new booking reused a reference the seed already holds');
+
+select test_reads(
+  $$select 1 from repairs where problem like 'Screen %' and reference !~ '^SPR-[0-9]+$'$$,
+  0, 'every issued reference is well formed');
+
 set role postgres;
 \echo ''
 \echo 'All checks passed.'
