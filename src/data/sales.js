@@ -105,7 +105,12 @@ export function generateOrders(days = 90, seed = 776211) {
           items,
           total,
           status,
-          paymentStatus: 'test_mode',
+          // Ninety days of completed trading, so these are settled — money that really came in
+          // through the till. Only what the current checkout writes stays unsettled, because
+          // that checkout takes no money (see SETTLED_PAYMENT_STATUSES in constants/finance.js).
+          paymentStatus: status === 'refunded' ? 'refunded'
+            : status === 'cancelled' ? 'pending'
+            : 'paid',
           createdAt,
         })
       }

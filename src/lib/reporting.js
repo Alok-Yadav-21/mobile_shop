@@ -3,7 +3,7 @@
 //
 // All bucketing is done in *local* time. A sale at 23:30 belongs to the day the branch was
 // open, which is not the same day in UTC.
-import { NON_EARNING_STATUSES } from '@/constants/finance.js'
+import { NON_EARNING_STATUSES, SETTLED_PAYMENT_STATUSES } from '@/constants/finance.js'
 
 const DAY = 86400000
 
@@ -75,7 +75,14 @@ export function rangeForLastPeriods(period, count, now = Date.now()) {
 
 // Only settled money counts. Cancelled and refunded orders stay in the ledger (they matter to
 // the payments screen) but must never appear as earnings.
+//
+// The payment status counts too, and used not to: an order reached 'paid' by the checkout
+// marking it so, with no processor behind it, and every report added it up as takings. An order
+// with no payment status at all is treated as settled, because that is what a hand-entered
+// counter sale looks like — the guard is against a checkout that says paid without being paid,
+// not against rows that predate the field.
 export const isEarning = (o) => !NON_EARNING_STATUSES.includes(o?.status)
+  && (o?.paymentStatus == null || SETTLED_PAYMENT_STATUSES.includes(o.paymentStatus))
 
 export function withinRange(ts, { from, to } = {}) {
   if (from != null && ts < from) return false

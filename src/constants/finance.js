@@ -22,6 +22,25 @@ export const ORDER_KIND_LABELS = {
 // Statuses that must never count toward earnings.
 export const NON_EARNING_STATUSES = ['cancelled', 'refunded']
 
+// Whether the money actually arrived. The column has always been on the order and nothing read
+// it, so an order counted as revenue on the strength of its status alone — and the checkout
+// marks orders 'paid' without taking a penny, because no payment processor is wired up yet.
+// Reports therefore showed money the shop had never received, which is the single worst thing a
+// reporting screen can do.
+//
+// 'test_mode' is what the current checkout writes. It is deliberately not settled, so the day
+// this goes live in front of real customers before Stripe is connected, the reports say nothing
+// was taken — because nothing was.
+export const SETTLED_PAYMENT_STATUSES = ['paid']
+
+export const PAYMENT_STATUS_LABELS = {
+  test_mode: 'No payment taken',
+  pending: 'Awaiting payment',
+  paid: 'Paid',
+  failed: 'Payment failed',
+  refunded: 'Refunded',
+}
+
 // Reporting periods offered across the admin reports.
 export const PERIODS = ['day', 'week', 'month']
 
