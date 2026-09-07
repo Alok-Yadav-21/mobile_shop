@@ -120,20 +120,34 @@ complete route list and per-role feature breakdown.
 
 ## Connecting a real backend
 
-1. Create a Supabase project and run `supabase/migrations/0001_init.sql` then
-   `0002_policies.sql` against it (SQL editor or CLI).
-2. Run `supabase/seed/seed.sql` for sample data, and create the three demo users via
-   Supabase Auth (email/password), then insert matching `profiles` rows (see the seed
-   file's comments).
-3. Copy `.env.example` to `.env` and set `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`.
-4. Restart `npm run dev` — the app now runs on `src/services/adapter/supabase.js`
-   automatically; no page code changes needed.
-5. For real payments, set `VITE_STRIPE_PUBLISHABLE_KEY` and wire a Stripe Checkout/
-   Payment Intents flow behind `OrderAPI.create` — Checkout already has a clearly
-   labelled test/mock-mode banner until then.
+With Docker running:
 
-`VITE_FORCE_MOCK_BACKEND=true` forces mock mode even with Supabase env vars set (useful
-for demos against seed data without touching a live project).
+```bash
+npx supabase start          # Postgres + Auth + API, every migration, and the seed
+npx supabase status -o env  # the URL and anon key for .env.local
+```
+
+Then `node scripts/seed-auth-users.mjs` for the demo accounts (it needs `SUPABASE_URL` and
+`SUPABASE_SERVICE_ROLE_KEY` in the environment), and `npm run dev`. The app switches to
+`src/services/adapter/supabase.js` on its own; no page code changes.
+
+`VITE_FORCE_MOCK_BACKEND=true` forces mock mode even with Supabase env vars set — useful for
+demos against ninety days of seeded trading without touching a live project.
+
+**[DEPLOYMENT.md](DEPLOYMENT.md)** covers deploying to a real project, creating the first admin,
+what payments still need, and the things that are deliberately yours to do.
+
+### Checking the rules still hold
+
+```bash
+bash supabase/tests/run.sh            # every migration + 55 authorisation checks, in Postgres
+node scripts/probe-rls.mjs            # the same rules over HTTP, with real signed-in sessions
+node scripts/probe-staff-accounts.mjs # the admin-only account endpoint, attacked directly
+```
+
+Each reports whether a row actually moved, not whether an error was raised — a blocked UPDATE
+matches nothing and returns success, so testing for exceptions would pass a database with no
+policies at all.
 
 ## Testing
 
