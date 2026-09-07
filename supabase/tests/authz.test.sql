@@ -64,6 +64,17 @@ begin
   perform set_config('request.jwt.claims', json_build_object('sub', who, 'role', 'authenticated')::text, false);
 end $fn$;
 
+-- Signed out entirely. `set role anon` alone is not that: the role changes but the claims stay
+-- put, so the session keeps whoever it last became and auth.uid() still answers with their id.
+-- Getting this wrong made an earlier run of this file report that anon could read every profile,
+-- which was the test carrying an admin's identity into a query it meant to send as a stranger.
+create or replace function sign_out() returns void
+language plpgsql as $fn$
+begin
+  perform set_config('request.jwt.claims', '', false);
+  perform set_config('request.jwt.claim.sub', '', false);
+end $fn$;
+
 -- ---------------------------------------------------------------------------------------
 -- Cast
 -- ---------------------------------------------------------------------------------------
@@ -87,13 +98,36 @@ insert into branches (id, area, local_name, address, postcode)
 values ('tst', 'Test branch', 'Test', '1 Test Street', 'BR1 5AL')
 on conflict (id) do nothing;
 
+-- Upsert, not insert: 0011 puts a trigger on auth.users that creates a profile for every new
+-- account, always as a customer. That is the rule being relied on elsewhere — signing up cannot
+-- make you staff — so the rows above already exist by the time we get here, and these have to
+-- promote them the way an admin would rather than skip on conflict and leave everyone a customer.
 insert into profiles (id, full_name, email, role, branch_id) values
   (:admin_id::uuid, 'Admin',        'admin@test.local', 'admin',    null),
   (:techA_id::uuid, 'Technician A', 'techa@test.local', 'staff',    'tst'),
   (:techB_id::uuid, 'Technician B', 'techb@test.local', 'staff',    'tst'),
   (:cust1_id::uuid, 'Customer One', 'cust1@test.local', 'customer', null),
   (:cust2_id::uuid, 'Customer Two', 'cust2@test.local', 'customer', null)
-on conflict (id) do nothing;
+on conflict (id) do update
+  set full_name = excluded.full_name, role = excluded.role, branch_id = excluded.branch_id;
+
+-- The rule itself, since the fixture above depends on it: an account arrives as a customer no
+-- matter what, and it takes an admin to make it anything else.
+do $$
+declare made_role user_role;
+begin
+  insert into auth.users (id, instance_id, aud, role, email, encrypted_password, raw_user_meta_data)
+  values ('66666666-6666-6666-6666-666666666666', '00000000-0000-0000-0000-000000000000',
+          'authenticated', 'authenticated', 'signup@test.local', '',
+          '{"full_name":"Signed Up","role":"admin","phone":"07700 900000"}'::jsonb);
+  select role into made_role from profiles where id = '66666666-6666-6666-6666-666666666666';
+  if made_role is null then
+    raise exception 'FAIL  signing up did not create a profile at all';
+  elsif made_role <> 'customer' then
+    raise exception 'FAIL  signing up while asking for role=% produced a % account', 'admin', made_role;
+  end if;
+  raise notice 'pass (customer)  signing up cannot make you anything but a customer';
+end $$;
 
 insert into repairs (reference, customer_id, branch_id, device_category, brand, model, problem, status)
 values ('TST-1', :cust1_id::uuid, 'tst', 'iPhone', 'Apple', 'iPhone 13', 'Cracked screen', 'booking_received')
@@ -325,6 +359,51 @@ select test_reads(
 select test_reads(
   $$select 1 from trade_in_status_history h join trade_in_requests t on t.id = h.trade_in_id where t.reference = 'TST-TI-1'$$,
   4, 'every trade-in status change was logged');
+
+-- ---------------------------------------------------------------------------------------
+-- What an account may change about itself
+-- ---------------------------------------------------------------------------------------
+\echo ''
+\echo '== accounts =='
+
+set role postgres;
+update profiles set must_change_password = true, password_change_allowed = false where id = :techA_id::uuid;
+set role authenticated;
+
+select become(:techA_id::uuid);
+select test_blocked(
+  $$update profiles set role = 'admin' where id = '22222222-2222-2222-2222-222222222222'$$,
+  'staff member promotes themselves to admin');
+select test_blocked(
+  $$update profiles set password_change_allowed = true where id = '22222222-2222-2222-2222-222222222222'$$,
+  'staff member opens their own password window');
+select test_blocked(
+  $$update profiles set must_change_password = false where id = '22222222-2222-2222-2222-222222222222'$$,
+  'staff member clears the change they still owe');
+select test_blocked(
+  $$update profiles set branch_id = 'tst', hourly_rate = 99 where id = '22222222-2222-2222-2222-222222222222'$$,
+  'staff member sets their own hourly rate');
+select test_allowed(
+  $$update profiles set phone = '07700 900999' where id = '22222222-2222-2222-2222-222222222222'$$,
+  'staff member updates their own phone number');
+
+select become(:admin_id::uuid);
+select test_allowed(
+  $$update profiles set password_change_allowed = true where id = '22222222-2222-2222-2222-222222222222'$$,
+  'admin opens the password window');
+
+-- Sign-in by username has to work before there is a session, without the profiles table being
+-- readable to a stranger.
+set role postgres;
+update profiles set username = 'S.Patel' where id = :techA_id::uuid;
+set role anon;
+select sign_out();
+select test_reads($$select email_for_username('s.patel')$$, 1, 'username resolves to an email for sign-in');
+select test_reads($$select 1 from profiles$$, 0, 'and the profiles table itself stays shut');
+select test_reads($$select 1 from repairs$$, 0, 'a stranger reads no repairs');
+select test_reads($$select 1 from orders$$, 0, 'a stranger reads no orders');
+select test_reads($$select 1 from products where active$$, 29, 'but the shop is still public');
+set role authenticated;
 
 -- ---------------------------------------------------------------------------------------
 -- References are issued by the database, and never twice
