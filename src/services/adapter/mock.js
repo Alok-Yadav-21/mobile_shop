@@ -33,11 +33,11 @@ import { locatePostcode, branchesByDistance } from '@/lib/geo.js'
 import { nextReference } from '@/lib/references.js'
 import { assertMayPatchRepair, assertMayAssign } from '@/lib/repairRules.js'
 import { notifyChange } from '@/services/liveStore.js'
-import { redactUnsentQuote } from '@/lib/quotes.js'
+import { redactUnsentQuote, QUOTE_SENT_STATUS } from '@/lib/quotes.js'
 import {
   repairMovedNotice, tradeInMovedNotice, orderMovedNotice, newOrderNotice,
   repairAssignedNotice, repairUnassignedNotice, orderAssignedNotice, orderUnassignedNotice,
-  newBookingNotice, newTradeInNotice,
+  newBookingNotice, newTradeInNotice, quoteAnsweredNotice, offerAnsweredNotice,
 } from '@/lib/notices.js'
 
 const delay = (ms = 250) => new Promise((r) => setTimeout(r, ms))
@@ -322,6 +322,15 @@ export const RepairAPI = {
       // Both ends of the move, including an unassignment, which told nobody at all before.
       if (previousTech) notifyTechnicianUnassigned(r, previousTech, patch.tech)
       if (patch.tech) notifyTechnicianAssigned(r, patch.tech, actor?.name)
+    }
+    // The answer travelling back the other way. Approving a quote is the customer's move, and
+    // it was announced only to the customer — so the technician who sent it sat waiting for a
+    // decision that had already been made, and only found out by reopening the job.
+    if (isCustomer(actor) && previousStatus === QUOTE_SENT_STATUS && patch.status !== previousStatus) {
+      const answered = quoteAnsweredNotice(r, patch.status === 'Repair in progress')
+      if (r.tech) notifyUser(r.tech, answered)
+      else notifyBranchStaff(r.branch, answered)
+      notifyAdmins(answered, actor.id)
     }
     return r
   },
@@ -1062,6 +1071,10 @@ export const TradeInAPI = {
     t.history = [...(t.history || []), [status, Date.now()]]
     saveJSON(KEYS.tradeIns, list)
     notifyTradeInCustomer(t, status)
+    // And the shop, which otherwise heard nothing: an accepted offer needs paying and a
+    // declined one needs the device sending back, and neither happens if nobody is told.
+    notifyBranchStaff(t.branchId || t.branch, offerAnsweredNotice(t, accepted, 'branch'), actor.id)
+    notifyAdmins(offerAnsweredNotice(t, accepted, 'admin'), actor.id)
     return t
   },
   // only requests still in the early stages may be withdrawn by the customer
