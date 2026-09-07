@@ -221,7 +221,12 @@ create table if not exists stock_purchases (
   id            uuid primary key default gen_random_uuid(),
   reference     text unique not null default 'VT-PO-' || nextval('stock_purchase_seq'),
   branch_id     text not null references branches(id),
-  product_id    text references products(id),
+  -- uuid, not text: products.id is a uuid, and Postgres refuses a foreign key between the two.
+  -- The mock adapter uses short string ids ('p1'), which is where the text came from, but the
+  -- column has to match the table it points at.
+  product_id    uuid references products(id),
+  -- What was bought, kept even when the product row is later archived or the id is unknown
+  -- (a one-off part from a supplier is not in the catalogue).
   product_name  text,
   quantity      integer not null check (quantity > 0),
   unit_cost     numeric(10,2) not null check (unit_cost >= 0),
