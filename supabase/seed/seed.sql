@@ -28,24 +28,15 @@ insert into categories (name, sort_order)
   ) as c(name, ord)
 on conflict (name) do nothing;
 
--- ── Products (from src/data/products.js — image_url left null; the app ships
---    the actual product photos as local assets, not URLs) ──────────────────
-insert into products (name, category_id, price, was_price, condition, rating)
-  select 'MacBook Air (refurbished)', id, 749, null, 'Refurbished', 4.9 from categories where name='MacBooks'
-union all
-  select 'iPhone 14 — 128GB', id, 579, null, 'Used', 4.8 from categories where name='iPhones'
-union all
-  select 'Over-ear Headphones', id, 129, 149, 'New', 4.6 from categories where name='Audio'
-union all
-  select 'Smartwatch Series X', id, 199, null, 'New', 4.7 from categories where name='Wearables'
-union all
-  select 'Ultrabook 14"', id, 699, null, 'New', 4.5 from categories where name='Laptops'
-union all
-  select 'Wireless Earbuds Pro', id, 99, 129, 'New', 4.8 from categories where name='Audio'
-union all
-  select 'Samsung Galaxy S23', id, 529, null, 'Used', 4.6 from categories where name='Smartphones'
-union all
-  select 'Bluetooth Speaker', id, 59, null, 'New', 4.7 from categories where name='Accessories';
+-- ── Products ────────────────────────────────────────────────────────────────
+-- Not here: see supabase/seed/products.generated.sql, which is generated from src/data/products.js
+-- by `node scripts/generate-product-seed.mjs` and applied straight after this file (the order is
+-- set in supabase/config.toml, and matters — products join categories by name).
+--
+-- This block used to be a hand-copied list of eight products while the app shipped twenty-nine,
+-- with different names, no brands and no descriptions, so anyone standing the database up got a
+-- different shop from the one in the demo. It also did not run: an untyped `null` in the first
+-- arm of the UNION types as text, which collides with the integer in the next arm.
 
 -- ── Services (from src/data/services.js — icon column stores the lucide icon name) ─
 insert into services (title, description, icon, device_category, sort_order) values
