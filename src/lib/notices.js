@@ -88,6 +88,32 @@ export function newTradeInNotice(tradeIn, audience = 'branch') {
   }
 }
 
+// The customer's answer, going back the other way. Every other step announced itself to
+// somebody, but the two moments that are actually the customer's — approving a quote, and
+// answering an offer — told only the customer, so the workshop sat waiting for a decision that
+// had already been made and the branch held a device nobody had been told was sold.
+export function quoteAnsweredNotice(repair, approved) {
+  return {
+    title: `${repair.ref} — quote ${approved ? 'approved' : 'declined'}`,
+    body: approved
+      ? `${repair.customer || 'The customer'} approved the quote for their ${deviceName(repair)}. You can start work.`
+      : `${repair.customer || 'The customer'} declined the quote for their ${deviceName(repair)}.${repair.cancellationReason ? ` Reason: ${repair.cancellationReason}` : ''}`,
+    ref: repair.ref,
+    link: `/staff/repairs/${repair.ref}`,
+  }
+}
+
+export function offerAnsweredNotice(tradeIn, accepted, audience = 'branch') {
+  return {
+    title: `${tradeIn.reference} — offer ${accepted ? 'accepted' : 'declined'}`,
+    body: accepted
+      ? `${deviceName(tradeIn)} — the customer accepted. Arrange payment and collection.`
+      : `${deviceName(tradeIn)} — the customer declined.${tradeIn.rejectionReason ? ` Reason: ${tradeIn.rejectionReason}` : ''}`,
+    ref: tradeIn.reference,
+    link: audience === 'admin' ? '/admin/buysell' : '/staff/requests',
+  }
+}
+
 export function newOrderNotice(order) {
   const count = itemCount(order)
   return {
