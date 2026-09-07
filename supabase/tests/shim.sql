@@ -12,14 +12,18 @@ create extension if not exists pgcrypto;
 create schema if not exists auth;
 
 create table if not exists auth.users (
-  id                 uuid primary key,
-  instance_id        uuid,
-  aud                text,
-  role               text,
-  email              text unique,
-  encrypted_password text,
-  created_at         timestamptz default now(),
-  updated_at         timestamptz default now()
+  id                  uuid primary key,
+  instance_id         uuid,
+  aud                 text,
+  role                text,
+  email               text unique,
+  encrypted_password  text,
+  -- What sign-up carries: the name and phone the person typed into the form. 0011's trigger
+  -- reads it to fill in their profile, so the fixture has to have it too.
+  raw_user_meta_data  jsonb default '{}'::jsonb,
+  raw_app_meta_data   jsonb default '{}'::jsonb,
+  created_at          timestamptz default now(),
+  updated_at          timestamptz default now()
 );
 
 -- The same resolution order Supabase uses: the individual claim setting first, then the whole
