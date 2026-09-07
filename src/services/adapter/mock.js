@@ -703,6 +703,11 @@ export const CartAPI = {
     saveJSON(KEYS.cart, cart); return cart
   },
   async clear() { saveJSON(KEYS.cart, { items: [] }); return { items: [] } },
+  // The Supabase adapter keeps a signed-out visitor's basket in the browser and moves it into
+  // their account on sign-in. Here the basket is always in the browser, so there is nothing to
+  // move - but CartContext calls this on sign-in either way, and the two adapters have to answer
+  // the same questions.
+  async adoptGuestCart() { return loadJSON(KEYS.cart, { items: [] }) },
 }
 
 export const OrderAPI = {

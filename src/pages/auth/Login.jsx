@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth.js'
 import { ROLE_HOME } from '@/constants/roles.js'
 import { BRAND } from '@/constants/brand.js'
 import { DEMO_SIGN_IN } from '@/data/credentials.js'
+import { isMockBackend } from '@/lib/supabaseClient.js'
 import { Logo } from '@/components/common/Logo.jsx'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 
@@ -96,8 +97,11 @@ export default function Login(){
             Staff accounts are created by an admin — ask your branch manager for your details.
           </p>
 
-          {/* This demo runs with no server, so the seeded accounts are listed here or nobody
-              can get in at all. A real deployment does not ship this block. */}
+          {/* The demo runs with no server, so the seeded accounts are listed here or nobody can
+              get in at all. Once a real backend is configured they are neither true nor anyone's
+              business, so the block goes — enforced by the same flag that chooses the adapter
+              rather than by remembering to delete it before going live. */}
+          {isMockBackend && (
           <details className="mt-6 border-t border-graphite-100 pt-4">
             <summary className="text-[12px] text-graphite-400 cursor-pointer select-none">Demo sign-in details</summary>
             <ul className="mt-2.5 space-y-1.5">
@@ -113,6 +117,7 @@ export default function Login(){
               ))}
             </ul>
           </details>
+          )}
         </div>
         <p className="text-center text-[12px] text-graphite-400 mt-5"><Link to="/" className="hover:text-brand">Back to Virktech</Link></p>
       </div>
