@@ -144,6 +144,24 @@ async function shopAudience(branchId, { except = null } = {}) {
 // waiting, and a customer cannot write into a staff member's notifications. These go through the
 // security-definer functions in migration 0011, which work out the recipients from the record
 // itself and refuse anything that is not the caller's own.
+// Anything that needs the service role key — creating an account, setting somebody else's
+// password, deleting one. That key bypasses every policy in the database and must never reach a
+// browser, so it lives in an edge function (supabase/functions/staff-accounts) which checks the
+// caller is an admin before doing anything.
+async function callStaffAccounts(payload) {
+  const { data, error } = await supabase.functions.invoke('staff-accounts', { body: payload })
+  // A non-2xx reply carries the reason in its body; supabase-js only tells you it failed, so the
+  // admin would otherwise see "Edge Function returned a non-2xx status code" instead of which
+  // field was wrong.
+  if (error) {
+    let detail = null
+    try { detail = (await error.context?.json?.())?.error } catch { /* nothing useful in the body */ }
+    throw new Error(detail || 'Could not reach the account service. Is the staff-accounts function deployed?')
+  }
+  if (data?.error) throw new Error(data.error)
+  return data
+}
+
 async function rpcNotify(fn, reference, notice, audience) {
   const { error } = await supabase.rpc(fn, {
     p_reference: reference, p_title: notice.title, p_body: notice.body,
@@ -1035,8 +1053,17 @@ export const UserAPI = {
   },
   // Creating a real auth user requires the Supabase Admin API (service role key), which must
   // never run in the browser — do this from a server function/edge function in production.
-  async create() {
-    throw new Error('Creating platform users requires a server-side Supabase Admin API call — not available from the browser client.')
+  // Staff and admin accounts only. A customer registers themselves, and the database decides
+  // that they are a customer regardless of what the form sends (migration 0011).
+  async create(data) {
+    assertConnected()
+    const created = await callStaffAccounts({
+      action: 'create',
+      email: data.email, name: data.name, role: data.role ?? 'staff',
+      username: data.username ?? null, password: data.password,
+      branch: data.branch ?? null, jobTitle: data.jobTitle ?? null,
+    })
+    return this.get(created.id)
   },
   async update(id, patch) {
     assertConnected()
@@ -1390,10 +1417,11 @@ export const AuthAPI = {
   },
 
   // Setting somebody else's password needs the Admin API and the service role key, which must
-  // never be shipped to a browser. In production this calls an edge function that checks the
-  // caller is an admin and then performs the update server-side.
-  async issueCredentials() {
-    throw new Error('Issuing sign-in details requires a server-side Supabase Admin API call — not available from the browser client.')
+  // never be shipped to a browser — so it happens in the edge function, which checks the caller
+  // is an admin before touching anything.
+  async issueCredentials(userId, { username, password, mustChange = false } = {}) {
+    assertConnected()
+    return callStaffAccounts({ action: 'issue-credentials', userId, username, password, mustChange })
   },
 
   async setPasswordChangePermission(userId, allowed) {
@@ -1414,7 +1442,8 @@ export const AuthAPI = {
     }
   },
 
-  async forgetCredentials() {
-    throw new Error('Removing an auth user requires a server-side Supabase Admin API call — not available from the browser client.')
+  async forgetCredentials(userId) {
+    assertConnected()
+    return callStaffAccounts({ action: 'forget-credentials', userId })
   },
 }
