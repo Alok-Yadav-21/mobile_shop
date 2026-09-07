@@ -33,11 +33,15 @@ import { locatePostcode, branchesByDistance } from '@/lib/geo.js'
 import { nextReference } from '@/lib/references.js'
 import { assertMayPatchRepair, assertMayAssign } from '@/lib/repairRules.js'
 import { notifyChange } from '@/services/liveStore.js'
-import { redactUnsentQuote, QUOTE_SENT_STATUS } from '@/lib/quotes.js'
+import { redactUnsentQuote } from '@/lib/quotes.js'
+import {
+  repairMovedNotice, tradeInMovedNotice, orderMovedNotice, newOrderNotice,
+  repairAssignedNotice, repairUnassignedNotice, orderAssignedNotice, orderUnassignedNotice,
+  newBookingNotice, newTradeInNotice,
+} from '@/lib/notices.js'
 
 const delay = (ms = 250) => new Promise((r) => setTimeout(r, ms))
 
-const formatGBP = (n) => `£${Number(n).toFixed(2).replace(/\.00$/, '')}`
 
 
 
@@ -145,51 +149,23 @@ function repairOwner(repair) {
     && ((repair.email && u.email === repair.email) || (repair.phone && u.phone === repair.phone)))
 }
 
+// What these say lives in src/lib/notices.js, so the Supabase adapter announces the same events
+// in the same words rather than growing a second vocabulary that drifts from this one. What is
+// left here is the part that is genuinely local: who the message goes to.
 function notifyRepairCustomer(repair, status) {
   const owner = repairOwner(repair)
   if (!owner) return
-  // The customer's wording, not the workshop's — the notification is the one place they are
-  // told about a step without opening the app, so it has to read the same as the page it
-  // links to. See CUSTOMER_STATUS_LABELS in constants/status.js.
-  // The repair is passed so the label resolves the same way the customer's own screens do —
-  // one projection of one stored status, used by the badge, the timeline and this notice.
-  const label = customerStatusLabel(status, repair)
-  const device = [repair.brand, repair.model].filter(Boolean).join(' ') || 'device'
-  // The one status that exists for the customer to act on carries the figure they are being
-  // asked to approve — a notice saying only "your approval is needed" makes them open the app
-  // to find out what for.
-  const body = status === QUOTE_SENT_STATUS && repair.quote != null
-    ? `We have quoted ${formatGBP(repair.quote)} for your ${device}. Approve it and we will start work.`
-    : `Your ${device} repair is now "${label}".`
-  notifyUser(owner.id, {
-    title: `${repair.ref} — ${label}`,
-    body,
-    ref: repair.ref,
-    link: `/app/repairs/${repair.ref}`,
-  })
+  notifyUser(owner.id, repairMovedNotice(repair, status))
 }
 
-// The same announcement for the sell journey, which previously made none at all: a customer
-// sent a device in and heard nothing until they thought to check the page.
+// The sell journey previously announced nothing at all: a customer sent a device in and heard
+// nothing until they thought to check the page.
 function notifyTradeInCustomer(tradeIn, status) {
-  const label = tradeInStatusLabel(status, 'customer')
-  const device = [tradeIn.brand, tradeIn.model].filter(Boolean).join(' ') || 'device'
-  notifyUser(tradeIn.customerId, {
-    title: `${tradeIn.reference} — ${label}`,
-    body: `Your ${device} sale is now "${label}".`,
-    ref: tradeIn.reference,
-    link: `/app/sell/${tradeIn.reference}`,
-  })
+  notifyUser(tradeIn.customerId, tradeInMovedNotice(tradeIn, status))
 }
 
 function notifyOrderCustomer(order, status) {
-  const label = orderStatusLabel(status, 'customer')
-  notifyUser(order.customerId, {
-    title: `${order.reference} — ${label}`,
-    body: `Your order is now "${label}".`,
-    ref: order.reference,
-    link: '/app/orders',
-  })
+  notifyUser(order.customerId, orderMovedNotice(order, status))
 }
 
 // Everyone the business runs through. Notifications only ever travelled outward to customers,
@@ -216,63 +192,32 @@ function notifyBranchStaff(branchId, payload, except = null) {
   }
 }
 
-// Told to the technician, not only recorded on the repair: an assignment the assignee never
-// sees is not an assignment.
+// Each of these resolves one name — the recipient, and for a reassignment whoever now holds the
+// job — and hands the rest to src/lib/notices.js.
 function notifyTechnicianAssigned(repair, staffId, assignedBy = null) {
   const staff = loadJSON(KEYS.users, seedUsers()).find((u) => u.id === staffId)
   if (!staff) return
-  const device = [repair.brand, repair.model].filter(Boolean).join(' ') || 'device'
-  notifyUser(staff.id, {
-    title: `${repair.ref} assigned to you`,
-    // Who gave it to them, because in a branch with a manager and a central admin "who decided
-    // this is mine?" is a real question and the audit log is not somewhere a technician looks.
-    body: `${device} — ${repair.problem || 'repair'}.${assignedBy ? ` Assigned by ${assignedBy}.` : ''}`,
-    ref: repair.ref,
-    link: `/staff/repairs/${repair.ref}`,
-  })
+  notifyUser(staff.id, repairAssignedNotice(repair, assignedBy))
 }
 
 function notifyOrderAssigned(order, staffId, assignedBy = null) {
   const staff = loadJSON(KEYS.users, seedUsers()).find((u) => u.id === staffId)
   if (!staff) return
-  const count = (order.items || []).reduce((n, i) => n + (i.quantity || 1), 0)
-  notifyUser(staff.id, {
-    title: `${order.reference} to fulfil`,
-    body: `${count} item${count === 1 ? '' : 's'}, ${formatGBP(order.total || 0)}.${assignedBy ? ` Assigned by ${assignedBy}.` : ''}`,
-    ref: order.reference,
-    link: '/staff/orders',
-  })
+  notifyUser(staff.id, orderAssignedNotice(order, assignedBy))
 }
 
 function notifyOrderUnassigned(order, staffId, newStaffId) {
   const users = loadJSON(KEYS.users, seedUsers())
   const staff = users.find((u) => u.id === staffId)
   if (!staff) return
-  const taker = newStaffId ? users.find((u) => u.id === newStaffId)?.name : null
-  notifyUser(staff.id, {
-    title: `${order.reference} is no longer yours`,
-    body: taker ? `Now with ${taker}.` : 'Taken off your list.',
-    ref: order.reference,
-    link: '/staff/orders',
-  })
+  notifyUser(staff.id, orderUnassignedNotice(order, newStaffId ? users.find((u) => u.id === newStaffId)?.name : null))
 }
 
-// The other half of a reassignment. Only the incoming technician used to be told, so the one who
-// lost the job kept "assigned to you" in their bell and no word that it had moved — they would
-// go to the bench for a device that was no longer theirs, and then be refused by the assignment
-// rule with nothing on screen explaining why.
 function notifyTechnicianUnassigned(repair, staffId, newTechId) {
   const users = loadJSON(KEYS.users, seedUsers())
   const staff = users.find((u) => u.id === staffId)
   if (!staff) return
-  const device = [repair.brand, repair.model].filter(Boolean).join(' ') || 'device'
-  const taker = newTechId ? users.find((u) => u.id === newTechId)?.name : null
-  notifyUser(staff.id, {
-    title: `${repair.ref} is no longer yours`,
-    body: taker ? `${device} — now with ${taker}.` : `${device} — taken off your list.`,
-    ref: repair.ref,
-    link: '/staff/repairs',
-  })
+  notifyUser(staff.id, repairUnassignedNotice(repair, newTechId ? users.find((u) => u.id === newTechId)?.name : null))
 }
 
 
@@ -313,18 +258,9 @@ export const RepairAPI = {
     const rep = { ref, status: 'Booking received', quote: null, tech: null, createdAt: Date.now(), history: [['Booking received', Date.now()]], notes: [], ...data, ...identity }
     list.unshift(rep); saveJSON(KEYS.repairs, list)
 
-    const device = [rep.brand, rep.model].filter(Boolean).join(' ') || 'device'
     // The branch works it; the admin assigns it. Both need to know it is there.
-    notifyBranchStaff(rep.branch, {
-      title: `${ref} — new booking`,
-      body: `${device} · ${rep.problem || 'repair'} · ${rep.customer || 'customer'}.`,
-      ref, link: `/staff/repairs/${ref}`,
-    }, actor.id)
-    notifyAdmins({
-      title: `${ref} — new booking`,
-      body: `${device} · ${rep.problem || 'repair'} · needs a technician.`,
-      ref, link: '/admin/assign',
-    }, actor.id)
+    notifyBranchStaff(rep.branch, newBookingNotice(rep, 'branch'), actor.id)
+    notifyAdmins(newBookingNotice(rep, 'admin'), actor.id)
     return rep
   },
   // status must be a valid transition from the repair's current status (see constants/status.js);
@@ -782,12 +718,7 @@ export const OrderAPI = {
     const order = { reference, status: 'paid', paymentStatus: 'test_mode', createdAt: Date.now(), ...data }
     list.unshift(order); saveJSON(KEYS.orders, list)
     // Orders are an admin responsibility (manageOrders), so this is who has to act on it.
-    const count = (order.items || []).reduce((n, i) => n + (i.quantity || 1), 0)
-    notifyAdmins({
-      title: `${reference} — new order`,
-      body: `${count} item${count === 1 ? '' : 's'}, ${formatGBP(order.total || 0)}.`,
-      ref: reference, link: '/admin/orders',
-    }, currentActor()?.id)
+    notifyAdmins(newOrderNotice(order), currentActor()?.id)
     for (const item of order.items || []) {
       try { await ProductAPI.adjustStock(item.productId, -item.quantity, `Order ${reference}`) } catch { /* out of sync stock is non-fatal for a mock order */ }
     }
@@ -1080,14 +1011,8 @@ export const TradeInAPI = {
     list.unshift(req); saveJSON(KEYS.tradeIns, list)
     notifyTradeInCustomer(req, 'submitted')
 
-    const device = [req.brand, req.model].filter(Boolean).join(' ') || 'device'
-    const inbound = {
-      title: `${reference} — device to buy`,
-      body: `${device} · ${req.conditionGrade || 'ungraded'} · guide ${formatGBP(req.indicativeValue || 0)}.`,
-      ref: reference, link: '/staff/requests',
-    }
-    notifyBranchStaff(req.branchId || req.branch, inbound, currentActor()?.id)
-    notifyAdmins({ ...inbound, link: '/admin/buysell' }, currentActor()?.id)
+    notifyBranchStaff(req.branchId || req.branch, newTradeInNotice(req, 'branch'), currentActor()?.id)
+    notifyAdmins(newTradeInNotice(req, 'admin'), currentActor()?.id)
     return req
   },
   async update(reference, patch) {
