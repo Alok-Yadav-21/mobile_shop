@@ -9,6 +9,8 @@ import { ReasonDialog } from '@/components/common/ReasonDialog.jsx'
 import { DashboardCard } from '@/components/common/DashboardCard.jsx'
 import { Table, Th, Td } from '@/components/custom-ui/table.jsx'
 import { money, fmtDate } from '@/utils/format.js'
+import { PAYMENT_STATUS_LABELS } from '@/constants/finance.js'
+import { isEarning } from '@/lib/reporting.js'
 import { PoundSterling, RotateCcw, CircleAlert } from 'lucide-react'
 
 export default function Payments(){
@@ -16,7 +18,15 @@ export default function Payments(){
   const { data:orders=[], refetch } = useAsync(()=>OrderAPI.list(),[])
   const [refunding,setRefunding]=useState(null)
   const canRefund = can(me?.role,'refundOrder')
-  const total = orders.reduce((s,o)=>s+(o.total||0),0)
+  // Split by whether the money actually arrived. One figure covering both was how an order the
+  // checkout marked "paid" without taking anything ended up counted as takings.
+  const settled = orders.filter(isEarning)
+  // Live orders where the money never arrived. Cancelled and refunded ones are excluded: no
+  // payment is owed on them, and counting them here reads as outstanding revenue that isn't.
+  const unsettled = orders.filter(o=>
+    !['cancelled','refunded'].includes(o.status) && o.paymentStatus && o.paymentStatus!=='paid')
+  const total = settled.reduce((s,o)=>s+(o.total||0),0)
+  const owed = unsettled.reduce((s,o)=>s+(o.total||0),0)
   const refunded = orders.filter(o=>o.status==='refunded')
 
   const requestRefund = async (reason)=>{
@@ -35,8 +45,11 @@ export default function Payments(){
         <CircleAlert size={15}/> No live Stripe key is connected — refunds here only create a record. Add VITE_STRIPE_PUBLISHABLE_KEY and a real payment backend to process actual refunds.
       </div>
 
-      <div className="grid sm:grid-cols-3 gap-4 mb-6">
-        <DashboardCard icon={PoundSterling} label="Total processed (test mode)" value={money(total)} tone="brand"/>
+      <div className="grid sm:grid-cols-4 gap-4 mb-6">
+        <DashboardCard icon={PoundSterling} label="Settled" value={money(total)} tone="brand"/>
+        {/* Orders the checkout let through without taking payment. They are excluded from every
+            revenue report, so this is the only screen that says where the money went. */}
+        <DashboardCard icon={CircleAlert} label={`Not taken (${unsettled.length})`} value={money(owed)} tone="amber"/>
         <DashboardCard icon={RotateCcw} label="Refund requests" value={refunded.length} tone="amber"/>
         <DashboardCard label="Transactions" value={orders.length} tone="violet"/>
       </div>
@@ -47,7 +60,14 @@ export default function Payments(){
           <tr key={o.reference} className="hover:bg-graphite-50">
             <Td className="font-bold mono-data text-brand">{o.reference}</Td>
             <Td className="mono-data">{money(o.total)}</Td>
-            <Td><span className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${o.status==='refunded'?'bg-rose-50 text-rose-600':'bg-amber-50 text-amber-600'}`}>{o.status==='refunded'?'Refund requested':'Test mode'}</span></Td>
+            {/* The real payment status, not "Test mode" against every row: ninety days of
+                settled trading was being labelled as though none of it had been paid. */}
+            <Td><span className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${
+              o.status==='refunded' ? 'bg-rose-50 text-rose-600'
+              : o.paymentStatus==='paid' ? 'bg-emerald-50 text-emerald-600'
+              : 'bg-amber-50 text-amber-600'}`}>
+              {o.status==='refunded' ? 'Refund requested' : (PAYMENT_STATUS_LABELS[o.paymentStatus] ?? 'Paid')}
+            </span></Td>
             <Td>{fmtDate(o.createdAt)}</Td>
             {canRefund && <Td>{o.status!=='refunded' && <button onClick={()=>setRefunding(o)} className="text-[12px] font-semibold text-rose-600 hover:underline">Request refund</button>}</Td>}
           </tr>))}

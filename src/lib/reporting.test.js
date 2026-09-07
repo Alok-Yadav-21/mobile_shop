@@ -54,6 +54,42 @@ describe('isEarning', () => {
     expect(isEarning(order({ status: 'refunded' }))).toBe(false)
     expect(isEarning(order())).toBe(true)
   })
+
+  // The checkout marks an order 'paid' without taking a penny, because no payment processor is
+  // wired up. Counting that as revenue is how a shop opens its reports and sees money it never
+  // received.
+  it('does not count an order the checkout only claims was paid', () => {
+    expect(isEarning(order({ status: 'paid', paymentStatus: 'test_mode' }))).toBe(false)
+    expect(isEarning(order({ status: 'delivered', paymentStatus: 'test_mode' }))).toBe(false)
+  })
+
+  it('counts one where the money actually settled', () => {
+    expect(isEarning(order({ status: 'delivered', paymentStatus: 'paid' }))).toBe(true)
+  })
+
+  it('does not count one still awaiting payment, or one that failed', () => {
+    expect(isEarning(order({ paymentStatus: 'pending' }))).toBe(false)
+    expect(isEarning(order({ paymentStatus: 'failed' }))).toBe(false)
+  })
+
+  it('still counts a sale entered at the counter with no payment status on it', () => {
+    // A hand-entered row predating the field is not a checkout claiming to have been paid.
+    expect(isEarning(order({ paymentStatus: undefined }))).toBe(true)
+  })
+})
+
+// The seeded ledger is ninety days of completed trading, and the reports built on it are what
+// the admin screens demonstrate. Requiring a settled payment must not quietly empty them.
+describe('the seeded ledger still reports as trading', () => {
+  it('counts as settled money, not as unpaid checkouts', async () => {
+    const { DEMO_ORDERS } = await import('@/data/sales.js')
+    const earning = DEMO_ORDERS.filter(isEarning)
+    expect(earning.length).toBeGreaterThan(0)
+    // Every order that is not cancelled or refunded should be settled.
+    const settleable = DEMO_ORDERS.filter((o) => !['cancelled', 'refunded'].includes(o.status))
+    expect(earning.length).toBe(settleable.length)
+    expect(DEMO_ORDERS.some((o) => o.paymentStatus === 'test_mode')).toBe(false)
+  })
 })
 
 describe('filterOrders', () => {
