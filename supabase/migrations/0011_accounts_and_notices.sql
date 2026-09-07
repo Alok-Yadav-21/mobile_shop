@@ -134,8 +134,13 @@ end $fn$;
 -- both leave somebody in the shop waiting. Notifications are staff-insert-only, which is right:
 -- without that, anyone could write into any employee's bell. So the recipients are worked out
 -- here, from the record, and the caller only gets to say it about a record that is theirs.
+-- p_audience is 'branch' or 'admin', because the same event is a different job depending on who
+-- reads it: the branch has to work the repair, the admin has to give it to somebody, and they
+-- get different wording and different links. The caller sends the message twice, once for each,
+-- rather than this function deciding what to say - what is said belongs in one place with the
+-- rest of the wording (src/lib/notices.js), and what this decides is only who hears it.
 create or replace function notify_shop_about_repair(
-  p_reference text, p_title text, p_body text, p_link text default null
+  p_reference text, p_title text, p_body text, p_link text default null, p_audience text default 'branch'
 ) returns integer
 language plpgsql security definer set search_path = public as $fn$
 declare
@@ -144,8 +149,8 @@ declare
 begin
   select * into r from repairs where reference = p_reference;
   if not found then return 0; end if;
-  -- Only about your own repair. Staff and admins have an insert policy already and do not need
-  -- to come through here.
+  -- Only about your own repair. Staff and admins can insert a notification directly and have no
+  -- reason to come through here.
   if r.customer_id is distinct from auth.uid() then
     raise exception 'You can only send an update about your own repair.' using errcode = '42501';
   end if;
@@ -154,18 +159,18 @@ begin
   select p.id, p_title, p_body, p_reference, p_link
   from profiles p
   where not p.archived and p.status = 'active'
-    and (
+    and case p_audience
+      when 'admin' then p.role = 'admin'
       -- Whoever is holding it, or the branch counter when nobody is yet.
-      (r.technician_id is not null and p.id = r.technician_id)
-      or (r.technician_id is null and p.role = 'staff' and p.branch_id = r.branch_id)
-      or p.role = 'admin'
-    );
+      else (r.technician_id is not null and p.id = r.technician_id)
+           or (r.technician_id is null and p.role = 'staff' and p.branch_id = r.branch_id)
+    end;
   get diagnostics sent = row_count;
   return sent;
 end $fn$;
 
 create or replace function notify_shop_about_trade_in(
-  p_reference text, p_title text, p_body text, p_link text default null
+  p_reference text, p_title text, p_body text, p_link text default null, p_audience text default 'branch'
 ) returns integer
 language plpgsql security definer set search_path = public as $fn$
 declare
@@ -182,12 +187,15 @@ begin
   select p.id, p_title, p_body, p_reference, p_link
   from profiles p
   where not p.archived and p.status = 'active'
-    and ((p.role = 'staff' and p.branch_id is not distinct from t.branch_id) or p.role = 'admin');
+    and case p_audience
+      when 'admin' then p.role = 'admin'
+      else p.role = 'staff' and p.branch_id is not distinct from t.branch_id
+    end;
   get diagnostics sent = row_count;
   return sent;
 end $fn$;
 
-revoke all on function notify_shop_about_repair(text, text, text, text) from public;
-revoke all on function notify_shop_about_trade_in(text, text, text, text) from public;
-grant execute on function notify_shop_about_repair(text, text, text, text) to authenticated;
-grant execute on function notify_shop_about_trade_in(text, text, text, text) to authenticated;
+revoke all on function notify_shop_about_repair(text, text, text, text, text) from public;
+revoke all on function notify_shop_about_trade_in(text, text, text, text, text) from public;
+grant execute on function notify_shop_about_repair(text, text, text, text, text) to authenticated;
+grant execute on function notify_shop_about_trade_in(text, text, text, text, text) to authenticated;
