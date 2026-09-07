@@ -12,19 +12,24 @@ Written by a developer, for the person running the business.
 
 | Publishing as | Legal pages needed? |
 |---|---|
-| **A demo / portfolio piece** | **No.** You collect no data — everything saves in the visitor's own browser — and no money can change hands. A privacy policy governs data you collect; you collect none. Keep the placeholder banner and label the site as a demo. |
+| **A demo / portfolio piece, on the mock backend** | **No.** You collect no data — everything saves in the visitor's own browser — and no money can change hands. A privacy policy governs data you collect; you collect none. Keep the placeholder banner and label the site as a demo. |
+| **A demo with the real backend connected** | **The privacy page, yes.** The moment a real database holds a real person's name and phone number, you are processing personal data, whether or not you are charging for anything. |
 | **A real shop with real customers** | **Yes, all three.** And they are the *last* of four blockers, not the first. |
 
 The other three blockers, in the order they have to be solved:
 
-1. **No backend.** A customer books on their phone and it saves on their phone. Your shop never
-   sees it. Nothing works across devices.
-2. **No payments.** Checkout marks orders paid without taking money.
-3. **No real logins.** The demo admin password is in the public repository.
+1. ~~**No backend.**~~ **Done.** Postgres, with the access rules enforced inside the database
+   rather than in the browser. See [DEPLOYMENT.md](DEPLOYMENT.md).
+2. **No payments.** Checkout still marks orders paid without taking money. They no longer count
+   as revenue, and the Payments screen shows them as *Not taken*, but you cannot trade on this.
+   Needs your Stripe account.
+3. ~~**No real logins.**~~ **Done.** Supabase Auth, real password hashing, staff credentials
+   issued by an admin, and no demo passwords in a build that has a backend configured.
 
-**Do not pay a solicitor before step 1 is done.** They will ask where customer data is stored,
-who can reach it and how long it is kept. Until the backend exists there are no answers, and you
-will pay them twice.
+**Do not pay a solicitor until payments are wired.** They will ask where customer data is
+stored, who can reach it, how long it is kept, and who processes the card details. The first
+three now have answers; the fourth does not until Stripe is connected, and it is the one that
+brings the payment-data questions with it. You would pay them twice.
 
 ---
 
