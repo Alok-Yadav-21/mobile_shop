@@ -15,6 +15,7 @@ import {
 } from '@/lib/notices.js'
 import { locatePostcode, branchesByDistance } from '@/lib/geo.js'
 import { productImage } from '@/data/productImages.js'
+import { applyRedemption, discountForPoints, creditValue, balanceFrom } from '@/lib/loyalty.js'
 
 // The DB's repair_status enum (supabase/migrations/0001_init.sql) and the app's REPAIR_FLOW
 // (src/constants/status.js) both describe the same 12 states — this is a direct 1:1 label map.
@@ -56,6 +57,8 @@ function mapRepairRow(row, history = [], notes = []) {
     // repairs_for_customer, which resolves just this one name (migration 0012) because the staff
     // list itself is not theirs to read.
     techName: row.technician?.full_name ?? row.technician_name ?? null,
+    loyaltyPointsUsed: row.loyalty_points_used ?? 0,
+    loyaltyDiscount: row.loyalty_discount == null ? 0 : Number(row.loyalty_discount),
     cancellationReason: row.cancellation_reason ?? null, archived: !!row.archived,
     createdAt: new Date(row.created_at).getTime(),
     history: history.map((h) => [STATUS_DB_TO_APP[h.status] ?? h.status, new Date(h.changed_at).getTime()]),
@@ -734,6 +737,8 @@ function mapOrderRow(row, history = []) {
     deliveryMethod: row.delivery_method,
     subtotal: row.subtotal == null ? 0 : Number(row.subtotal),
     total: row.total == null ? 0 : Number(row.total),
+    loyaltyPointsUsed: row.loyalty_points_used ?? 0,
+    loyaltyDiscount: row.loyalty_discount == null ? 0 : Number(row.loyalty_discount),
     cancellationReason: row.cancellation_reason ?? null,
     items: (row.order_items ?? []).map((i) => ({
       productId: i.product_id, name: i.product_name_snapshot,
@@ -778,6 +783,10 @@ export const OrderAPI = {
       customer_id: profile?.id ?? null, branch_id: payload.branchId ?? null,
       delivery_method: payload.deliveryMethod ?? 'delivery',
       subtotal: payload.subtotal, total: payload.total,
+      // Stored alongside the total rather than folded into it, so the order still reconciles
+      // against its own line items and the next purchase earns on what was actually paid.
+      loyalty_points_used: payload.loyaltyPointsUsed ?? 0,
+      loyalty_discount: payload.loyaltyDiscount ?? 0,
       payment_status: 'test_mode', status: 'paid',
     }).select('id, reference').single()
     if (error) throw error
@@ -1203,6 +1212,199 @@ export const NotificationAPI = {
     const { data, error } = await q.select('id')
     if (error) throw error
     return { removed: data?.length ?? 0 }
+  },
+}
+
+// --- loyalty points --------------------------------------------------------------------------
+//
+// The rules live in the database (migration 0014): earning is posted by triggers on orders and
+// repairs, and redemptions and adjustments go through security-definer functions. There is no
+// insert policy on loyalty_entries at all, so nothing here can write the ledger directly — a
+// ledger a client can append to is not a ledger.
+//
+// What is left for this file is asking the right questions and shaping the answers.
+
+function mapLoyaltyRow(e) {
+  return {
+    id: e.id,
+    customerId: e.customer_id,
+    delta: e.delta,
+    kind: e.kind,
+    sourceType: e.source_type ?? null,
+    sourceRef: e.source_ref ?? null,
+    branch: e.branch_id ?? null,
+    actorId: e.actor_id ?? null,
+    note: e.note ?? null,
+    at: new Date(e.created_at).getTime(),
+  }
+}
+
+// A customer with no movements has no row in the balances view, which is not the same as an
+// error — it is a balance of zero, and every screen should be able to render it as one.
+const emptyBalance = (customerId) => ({
+  customerId, points: 0, credit: 0, earned: 0, redeemed: 0, reversed: 0,
+})
+
+function mapBalanceRow(row, customerId) {
+  if (!row) return emptyBalance(customerId)
+  return {
+    customerId: row.customer_id,
+    points: Number(row.points) || 0,
+    credit: Number(row.credit) || 0,
+    earned: Number(row.earned) || 0,
+    redeemed: Number(row.redeemed) || 0,
+    reversed: Number(row.reversed) || 0,
+  }
+}
+
+export const LoyaltyAPI = {
+  async summary(customerId) {
+    assertConnected()
+    const profile = await currentProfile()
+    const target = customerId ?? profile?.id
+    if (!target) return emptyBalance(null)
+    const { data, error } = await supabase.from('loyalty_balances')
+      .select('*').eq('customer_id', target).maybeSingle()
+    if (error) throw error
+    return mapBalanceRow(data, target)
+  },
+
+  async history(customerId) {
+    assertConnected()
+    const profile = await currentProfile()
+    const target = customerId ?? profile?.id
+    if (!target) return []
+    const { data, error } = await supabase.from('loyalty_entries')
+      .select('*').eq('customer_id', target).order('created_at', { ascending: false })
+    if (error) throw error
+    return data.map(mapLoyaltyRow)
+  },
+
+  // What may be put against a bill right now. The arithmetic is shared with the mock adapter and
+  // the screens (src/lib/loyalty.js); the database applies the same three limits again as it
+  // writes, because this figure was true when the page loaded.
+  async quote(customerId, total, requested) {
+    assertConnected()
+    const { points } = await this.summary(customerId)
+    return { ...applyRedemption({ balance: points, total, requested }), balance: points }
+  },
+
+  async redeem({ customerId, points, total, sourceType, sourceRef, branch }) {
+    assertConnected()
+    const profile = await currentProfile()
+    const { data, error } = await supabase.rpc('loyalty_redeem', {
+      p_customer: customerId ?? profile?.id,
+      p_points: points, p_total: total,
+      p_source_type: sourceType, p_source_ref: sourceRef, p_branch: branch ?? null,
+    })
+    if (error) throw new Error(error.message)
+    const taken = Number(data) || 0
+    return { points: taken, discount: discountForPoints(taken) }
+  },
+
+  // The counter's view of a repair: whose points, how many, and what has already been applied.
+  // Resolved from the repair rather than taken from the page, so a staff screen never has to
+  // work out which account a walk-in belongs to — and cannot be talked into the wrong one.
+  async forRepair(ref) {
+    assertConnected()
+    const { data: repair, error } = await supabase.from('repairs')
+      .select('reference, customer_id, quote, branch_id, loyalty_points_used, customer:profiles!repairs_customer_id_fkey(full_name)')
+      .eq('reference', ref).maybeSingle()
+    if (error) throw error
+    if (!repair) return null
+    // A walk-in booked at the counter has no account, so there is nothing to show and nothing to
+    // spend. Not an error — most branch bookings will look like this.
+    if (!repair.customer_id) return { customerId: null, points: 0, credit: 0, hasAccount: false }
+    const summary = await this.summary(repair.customer_id)
+    return {
+      ...summary,
+      customerName: repair.customer?.full_name ?? null,
+      hasAccount: true,
+      appliedPoints: repair.loyalty_points_used ?? 0,
+    }
+  },
+
+  async redeemForRepair(ref, points) {
+    assertConnected()
+    const { data: repair, error } = await supabase.from('repairs')
+      .select('id, reference, customer_id, quote, branch_id').eq('reference', ref).maybeSingle()
+    if (error) throw error
+    if (!repair) return null
+    if (!repair.customer_id) throw new Error('This booking is not attached to a customer account.')
+
+    const applied = await this.redeem({
+      customerId: repair.customer_id, points, total: Number(repair.quote) || 0,
+      sourceType: 'repair', sourceRef: ref, branch: repair.branch_id,
+    })
+    if (applied.points > 0) {
+      // Recorded on the repair, not deducted from the quote: the quote is what the customer
+      // approved and must stay what they approved. The assignment rule on repairs decides
+      // whether this write is allowed at all — a discount on a job is as much part of that
+      // record as the quote is.
+      const { error: updateError } = await supabase.from('repairs')
+        .update({ loyalty_points_used: applied.points, loyalty_discount: applied.discount })
+        .eq('reference', ref)
+      if (updateError) throw new Error(updateError.message)
+    }
+    return applied
+  },
+
+  async adjust(customerId, delta, reason) {
+    assertConnected()
+    const { error } = await supabase.rpc('loyalty_adjust', {
+      p_customer: customerId, p_delta: Math.trunc(Number(delta) || 0), p_reason: reason,
+    })
+    if (error) throw new Error(error.message)
+    return this.summary(customerId)
+  },
+
+  // The scheme across all eight branches. Admin-only by the shape of the read rather than by a
+  // check here: a non-admin's select on loyalty_entries returns only their own rows, so the
+  // report they would build is their own account and nobody else's.
+  async report() {
+    assertConnected()
+    const profile = await currentProfile()
+    if (profile?.role !== 'admin') throw new Error('Your account does not have access to that.')
+
+    const { data: entries, error } = await supabase.from('loyalty_entries')
+      .select('*, customer:profiles!loyalty_entries_customer_id_fkey(full_name)')
+      .order('created_at', { ascending: false })
+    if (error) throw error
+
+    const rows = entries.map(mapLoyaltyRow)
+    const names = new Map(entries.map((e) => [e.customer_id, e.customer?.full_name ?? e.customer_id]))
+
+    const byCustomer = new Map()
+    const byBranch = new Map()
+    for (const e of rows) {
+      const c = byCustomer.get(e.customerId) ?? { customerId: e.customerId, points: 0, earned: 0, redeemed: 0 }
+      c.points += e.delta
+      if (e.delta > 0) c.earned += e.delta
+      if (e.kind === 'redeemed') c.redeemed += Math.abs(e.delta)
+      byCustomer.set(e.customerId, c)
+
+      // A manual adjustment is an admin decision, not trade done at a counter, so it is left out
+      // of the branch breakdown rather than filed under the web shop.
+      if (e.sourceType === 'adjustment') continue
+      const key = e.branch ?? 'web'
+      const b = byBranch.get(key) ?? { branch: key, earned: 0, redeemed: 0 }
+      if (e.delta > 0) b.earned += e.delta
+      if (e.kind === 'redeemed') b.redeemed += Math.abs(e.delta)
+      byBranch.set(key, b)
+    }
+
+    const earned = rows.filter((e) => e.kind === 'earned').reduce((n, e) => n + e.delta, 0)
+    const redeemed = rows.filter((e) => e.kind === 'redeemed').reduce((n, e) => n + Math.abs(e.delta), 0)
+    const outstanding = balanceFrom(rows)
+    return {
+      earned, redeemed, outstanding,
+      liability: creditValue(outstanding),
+      customers: [...byCustomer.values()]
+        .map((r) => ({ ...r, name: names.get(r.customerId), credit: creditValue(r.points) }))
+        .sort((a, b) => b.points - a.points),
+      branches: [...byBranch.values()].sort((a, b) => b.earned - a.earned),
+      entries: rows,
+    }
   },
 }
 

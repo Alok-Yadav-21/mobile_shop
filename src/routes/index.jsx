@@ -67,6 +67,7 @@ const ManageServices = lazy(()=>import('@/pages/admin/ManageServices.jsx'))
 const ManageOrders = lazy(()=>import('@/pages/admin/ManageOrders.jsx'))
 const BuySellRequests = lazy(()=>import('@/pages/admin/BuySellRequests.jsx'))
 const Payments = lazy(()=>import('@/pages/admin/Payments.jsx'))
+const AdminLoyalty = lazy(()=>import('@/pages/admin/Loyalty.jsx'))
 const Reports = lazy(()=>import('@/pages/admin/Reports.jsx'))
 const Wages = lazy(()=>import('@/pages/admin/Wages.jsx'))
 const ShiftApprovals = lazy(()=>import('@/pages/admin/ShiftApprovals.jsx'))
@@ -152,6 +153,7 @@ export default function AppRoutes(){
           <Route path="services" element={<ManageServices/>}/>
           <Route path="orders" element={<ManageOrders/>}/>
           <Route path="payments" element={<Payments/>}/>
+          <Route path="loyalty" element={<AdminLoyalty/>}/>
           <Route path="customers" element={<ManageCustomers/>}/>
           <Route path="staff" element={<ManageStaff/>}/>
           <Route path="users" element={<ManageUsers/>}/>

@@ -23,6 +23,12 @@ export const SPEND_BLOCK = 10
 export const REDEEM_STEP = 10
 export const CREDIT_PER_STEP = 2
 
+// What the scheme gives back, as a percentage, for anywhere that needs to say so out loud.
+// Derived rather than written down twice: £10 spent earns 5 points, and 5 points are worth £1.
+export const LOYALTY_RATE_PCT = Math.round(
+  (POINTS_PER_BLOCK / REDEEM_STEP * CREDIT_PER_STEP) / SPEND_BLOCK * 100,
+)
+
 // --- the cap ---------------------------------------------------------------------------------
 
 // Points may cover at most a fifth of a bill. Without this a customer with a large balance could
@@ -131,6 +137,22 @@ export function settlementDelta({ credited = 0, target = 0, balance = 0 } = {}) 
   return clawback === 0 ? 0 : -clawback
 }
 
+// The two kinds that make up a transaction's earning position. A redemption is not one of them,
+// even when it carries the same reference — points spent against the very repair being paid for
+// are a different axis entirely, and folding them in here once made a completed job hand the
+// customer back everything they had just spent.
+const EARNING_KINDS = ['earned', 'reversed']
+
+/**
+ * What one transaction's own movements have credited so far — the figure `settlementDelta`
+ * measures the entitlement against.
+ */
+export function creditedForSource(entries, { customerId, sourceType, sourceRef } = {}) {
+  return balanceFrom((entries || []).filter((e) => e.customerId === customerId
+    && e.sourceType === sourceType && e.sourceRef === sourceRef
+    && EARNING_KINDS.includes(e.kind)))
+}
+
 /** The balance a ledger adds up to. The balance is never stored — it is only ever this sum. */
 export function balanceFrom(entries = []) {
   return entries.reduce((sum, e) => sum + (Number(e?.delta) || 0), 0)
@@ -200,7 +222,10 @@ export function repairEarnsPoints(repair) {
   if (!repair) return null
   if (REPAIR_STOPPED.includes(repair.status)) return null
   if (!REPAIR_FINISHED.includes(repair.status)) return null
-  const spend = Number(repair.quote) || 0
+  // What was actually paid at the counter. The quote stays what the customer approved, so any
+  // points already put against this job are subtracted here rather than taken off the quote —
+  // otherwise a discount would quietly earn points back on itself.
+  const spend = Math.max(0, (Number(repair.quote) || 0) - (Number(repair.loyaltyDiscount) || 0))
   const points = pointsEarnedFor(spend)
   return points > 0 ? { points, spend } : null
 }

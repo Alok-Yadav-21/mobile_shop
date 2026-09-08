@@ -26,8 +26,11 @@ begin
     end if;
     raise notice 'pass (no rows)  %', label;
   exception
-    -- 42501 insufficient_privilege, 23514 check_violation: the guards raise these deliberately.
-    when sqlstate '42501' or sqlstate '23514' then
+    -- The codes the guards raise deliberately: 42501 insufficient_privilege, 23514
+    -- check_violation for a validation failure, 23505 unique_violation for something already
+    -- done once. Not P0001, which is what a bare `raise exception` uses — and what the FAIL
+    -- above uses, so catching it would swallow the failures this function exists to report.
+    when sqlstate '42501' or sqlstate '23514' or sqlstate '23505' then
       raise notice 'pass (refused)  %', label;
   end;
 end $fn$;
@@ -404,6 +407,95 @@ select test_reads($$select 1 from repairs$$, 0, 'a stranger reads no repairs');
 select test_reads($$select 1 from orders$$, 0, 'a stranger reads no orders');
 select test_reads($$select 1 from products where active$$, 29, 'but the shop is still public');
 set role authenticated;
+
+
+-- ---------------------------------------------------------------------------------------
+-- Loyalty points
+-- ---------------------------------------------------------------------------------------
+\echo ''
+\echo '== loyalty points =='
+
+-- A completed repair pays out. Quoted at £119, so it earns 55 points.
+select sign_out();
+set role postgres;
+insert into repairs (reference, customer_id, branch_id, device_category, brand, model, problem, status, quote)
+values ('SPR-LOY-1', :cust1_id::uuid, 'tst', 'iPhone', 'Apple', 'iPhone 13', 'Screen', 'ready_for_collection', 119);
+set role authenticated;
+
+select become(:techA_id::uuid);
+select test_reads($$select 1 from loyalty_entries where source_ref = 'SPR-LOY-1'$$, 0,
+  'nothing is earned before the device is handed back');
+
+-- Signed out as well as switched: `set role postgres` leaves the previous JWT claims in place,
+-- so auth.uid() still answers with the technician and the assignment guard refuses the update.
+-- The same trap caught this file once before, further up.
+select sign_out();
+set role postgres;
+update repairs set status = 'completed' where reference = 'SPR-LOY-1';
+set role authenticated;
+
+select become(:cust1_id::uuid);
+select test_reads($$select 1 from loyalty_balances where customer_id = auth.uid() and points = 55$$, 1,
+  'a £119 repair earns 55 points');
+
+-- Nobody writes their own points, whoever they are.
+select test_blocked(
+  $$insert into loyalty_entries (customer_id, delta, kind, note)
+    values ('44444444-4444-4444-4444-444444444444', 10000, 'adjusted', 'free points')$$,
+  'a customer awards themselves points');
+
+select become(:techA_id::uuid);
+select test_blocked(
+  $$insert into loyalty_entries (customer_id, delta, kind, note)
+    values ('22222222-2222-2222-2222-222222222222', 10000, 'adjusted', 'free points')$$,
+  'a staff member awards themselves points');
+
+select become(:admin_id::uuid);
+select test_blocked(
+  $$insert into loyalty_entries (customer_id, delta, kind, note)
+    values ('44444444-4444-4444-4444-444444444444', 10000, 'adjusted', 'straight into the table')$$,
+  'even an admin writes the ledger directly');
+
+-- Reading somebody else's.
+select become(:cust2_id::uuid);
+select test_reads($$select 1 from loyalty_entries where customer_id = '44444444-4444-4444-4444-444444444444'$$, 0,
+  'another customer reads this balance');
+select become(:techA_id::uuid);
+select test_reads($$select 1 from loyalty_entries where customer_id = '44444444-4444-4444-4444-444444444444'$$, 1,
+  'staff read the balance of the customer they are serving');
+
+-- Adjustments.
+select become(:techA_id::uuid);
+select test_blocked($$select loyalty_adjust('44444444-4444-4444-4444-444444444444', 500, 'because')$$,
+  'a staff member adjusts a balance');
+select become(:admin_id::uuid);
+select test_blocked($$select loyalty_adjust('44444444-4444-4444-4444-444444444444', 500, '   ')$$,
+  'an admin adjusts with no reason');
+select test_blocked($$select loyalty_adjust('44444444-4444-4444-4444-444444444444', -5000, 'clawback')$$,
+  'an adjustment that would go below zero');
+select test_reads($$select loyalty_adjust('44444444-4444-4444-4444-444444444444', 45, 'Goodwill')$$, 1,
+  'an admin adjusts with a reason');
+
+-- Redemption: balance is now 100. The 20% cap on a £40 bill allows 40 points.
+select become(:cust1_id::uuid);
+select test_reads($$select loyalty_redeem('44444444-4444-4444-4444-444444444444', 999, 40, 'order', 'ORD-LOY-1')$$, 1,
+  'a redemption is trimmed to the 20% cap');
+select test_reads(
+  $$select 1 from loyalty_entries where source_ref = 'ORD-LOY-1' and kind = 'redeemed' and delta = -40$$,
+  1, 'and takes exactly 40 points');
+select test_blocked($$select loyalty_redeem('44444444-4444-4444-4444-444444444444', 10, 40, 'order', 'ORD-LOY-1')$$,
+  'the same transaction is redeemed against twice');
+
+select become(:cust2_id::uuid);
+select test_blocked($$select loyalty_redeem('44444444-4444-4444-4444-444444444444', 10, 100, 'order', 'ORD-LOY-2')$$,
+  'another customer spends this balance');
+
+-- Never negative, however hard it is pushed.
+select become(:cust1_id::uuid);
+select test_reads($$select loyalty_redeem('44444444-4444-4444-4444-444444444444', 99999, 100000, 'order', 'ORD-LOY-3')$$, 1,
+  'a huge redemption is capped at the balance');
+select test_reads($$select 1 from loyalty_balances where customer_id = auth.uid() and points >= 0$$, 1,
+  'the balance never goes negative');
 
 -- ---------------------------------------------------------------------------------------
 -- References are issued by the database, and never twice

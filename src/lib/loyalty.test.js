@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   pointsEarnedFor, creditValue, pointsForCredit, maxRedeemablePoints,
   applyRedemption, balanceFrom, describeMovement,
-  orderEarnsPoints, repairEarnsPoints, settlementDelta,
-  POINTS_PER_BLOCK, SPEND_BLOCK, REDEEM_STEP, CREDIT_PER_STEP, MAX_DISCOUNT_RATE,
+  orderEarnsPoints, repairEarnsPoints, settlementDelta, creditedForSource,
+  POINTS_PER_BLOCK, SPEND_BLOCK, REDEEM_STEP, CREDIT_PER_STEP, MAX_DISCOUNT_RATE, LOYALTY_RATE_PCT,
 } from './loyalty.js'
 
 // Loyalty points are money owed to a customer. Every figure the scheme was specified with is
@@ -206,6 +206,14 @@ describe('the scheme’s own constants', () => {
     expect(creditValue(pointsEarnedFor(1000))).toBe(100)
   })
 
+  it('advertises the rate the scheme actually gives', () => {
+    // The homepage quotes this figure. It said 4% before the scheme existed, and a headline
+    // percentage that does not match what the till gives back is a claim a customer can hold
+    // the shop to — so it is derived from the constants rather than typed in twice.
+    expect(LOYALTY_RATE_PCT).toBe(10)
+    expect(creditValue(pointsEarnedFor(100))).toBe(100 * LOYALTY_RATE_PCT / 100)
+  })
+
   it('holds a part-block until the customer completes it', () => {
     // £50 earns 25 points, and only 20 of them are spendable — the odd 5 are worth nothing on
     // their own and wait for the next purchase. This is why nothing here uses a per-point rate:
@@ -249,6 +257,17 @@ describe('which transactions earn', () => {
       expect(repairEarnsPoints(repair({ status }))).toBeNull()
     }
     expect(repairEarnsPoints(repair({ status: 'Cancelled' }))).toBeNull()
+  })
+
+  it('earns on what was actually paid, not on the quote before a discount', () => {
+    // £119 quoted, £24 of it settled with points: the customer paid £95, and £95 is what earns.
+    // Earning on the full quote would let a discount pay for its own points.
+    expect(repairEarnsPoints(repair({ quote: 119, loyaltyDiscount: 24 }))).toEqual({ points: 45, spend: 95 })
+    expect(repairEarnsPoints(repair({ quote: 119, loyaltyDiscount: 0 }))).toEqual({ points: 55, spend: 119 })
+  })
+
+  it('earns nothing when points covered enough to bring it under the threshold', () => {
+    expect(repairEarnsPoints(repair({ quote: 15, loyaltyDiscount: 6 }))).toBeNull()
   })
 
   it('earns nothing on a completed repair that was never charged for', () => {
@@ -309,5 +328,45 @@ describe('keeping one transaction’s points in line with itself', () => {
   it('survives being called with nothing', () => {
     expect(settlementDelta()).toBe(0)
     expect(settlementDelta({})).toBe(0)
+  })
+})
+
+describe('what one transaction has been credited', () => {
+  const who = { customerId: 'u1', sourceType: 'repair', sourceRef: 'SPR-4809' }
+  const ledger = [
+    { ...who, kind: 'earned', delta: 80 },
+    { ...who, kind: 'redeemed', delta: -180 },
+    { customerId: 'u1', sourceType: 'order', sourceRef: 'VT-ORD-1', kind: 'earned', delta: 50 },
+    { customerId: 'u2', sourceType: 'repair', sourceRef: 'SPR-4809', kind: 'earned', delta: 999 },
+    { customerId: 'u1', sourceType: 'adjustment', sourceRef: null, kind: 'adjusted', delta: 180 },
+  ]
+
+  it('counts only what this transaction earned', () => {
+    expect(creditedForSource(ledger, who)).toBe(80)
+  })
+
+  it('ignores points spent against the very same transaction', () => {
+    // The bug this pins: a customer paying for a £200 repair with 180 points made the ledger read
+    // "this job has credited minus 180", so completing it awarded the difference — handing back
+    // everything they had just spent, on top of the points the job really earned.
+    expect(creditedForSource(ledger, who)).not.toBe(-100)
+  })
+
+  it('ignores other transactions, other people, and manual adjustments', () => {
+    expect(creditedForSource(ledger, { ...who, sourceRef: 'SPR-9999' })).toBe(0)
+    expect(creditedForSource(ledger, { ...who, customerId: 'u3' })).toBe(0)
+  })
+
+  it('nets an earn against its own reversal', () => {
+    expect(creditedForSource([
+      { ...who, kind: 'earned', delta: 80 },
+      { ...who, kind: 'reversed', delta: -80 },
+    ], who)).toBe(0)
+  })
+
+  it('survives an empty or missing ledger', () => {
+    expect(creditedForSource([], who)).toBe(0)
+    expect(creditedForSource(undefined, who)).toBe(0)
+    expect(creditedForSource(ledger)).toBe(0)
   })
 })
