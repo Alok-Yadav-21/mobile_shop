@@ -21,8 +21,8 @@ import {
   requireAuth, requireCan, requireSelfOrAdmin, requireBranchScope, requireAssignedTechnician,
   requireAssignedFulfiller,
   isAdmin, isStaff, isCustomer,
-  scopeRepairs, scopeOrders, scopeShifts, scopeTradeIns, scopeUsers, scopeOwned, redactUser,
-  AuthzError,
+  scopeRepairs, scopeOrders, scopeShifts, scopeTradeIns, scopeUsers, scopeOwned, scopeLoyalty,
+  redactUser, AuthzError,
 } from '@/lib/authz.js'
 import { customerCanCancelRepair } from '@/lib/permissions.js'
 import {
@@ -34,6 +34,10 @@ import { nextReference } from '@/lib/references.js'
 import { assertMayPatchRepair, assertMayAssign } from '@/lib/repairRules.js'
 import { notifyChange } from '@/services/liveStore.js'
 import { redactUnsentQuote, QUOTE_SENT_STATUS } from '@/lib/quotes.js'
+import {
+  balanceFrom, creditValue, applyRedemption, settlementDelta,
+  orderEarnsPoints, repairEarnsPoints,
+} from '@/lib/loyalty.js'
 import {
   repairMovedNotice, tradeInMovedNotice, orderMovedNotice, newOrderNotice,
   repairAssignedNotice, repairUnassignedNotice, orderAssignedNotice, orderUnassignedNotice,
@@ -67,7 +71,7 @@ const KEYS = {
   notifications: 'vt_notifications', auditLog: 'vt_audit_log', repairParts: 'vt_repair_parts',
   inventoryMoves: 'vt_inventory_moves', customerNotes: 'vt_customer_notes', settings: 'vt_settings',
   addresses: 'vt_addresses', warranties: 'vt_warranties', services: 'vt_services', branchStock: 'vt_branch_stock',
-  purchases: 'vt_purchases', shifts: 'vt_shifts',
+  purchases: 'vt_purchases', shifts: 'vt_shifts', loyalty: 'vt_loyalty',
 }
 
 // --- seed helpers: merge operational fields (stock, status, active flags) onto the verified
@@ -326,6 +330,9 @@ export const RepairAPI = {
     // The answer travelling back the other way. Approving a quote is the customer's move, and
     // it was announced only to the customer — so the technician who sent it sat waiting for a
     // decision that had already been made, and only found out by reopening the job.
+    // Points follow the repair the same way they follow an order: earned when the device is
+    // handed back and paid for, returned if the job is later cancelled.
+    if (patch.status && patch.status !== previousStatus) settleRepairPoints(r)
     if (isCustomer(actor) && previousStatus === QUOTE_SENT_STATUS && patch.status !== previousStatus) {
       const answered = quoteAnsweredNotice(r, patch.status === 'Repair in progress')
       if (r.tech) notifyUser(r.tech, answered)
@@ -710,6 +717,39 @@ export const CartAPI = {
   async adoptGuestCart() { return loadJSON(KEYS.cart, { items: [] }) },
 }
 
+// Bringing an order's points into line with where it has got to. Called after every status
+// change rather than at one chosen moment, so the ledger follows the order wherever it goes: past
+// the finish line it earns, back over it — a refund, a cancellation — it gives the points back.
+//
+// Nothing here throws. A points problem must never stop an order being marked delivered; the
+// worst case is a customer whose balance is short, which an admin can adjust, rather than a
+// branch that cannot record what it did.
+function settleOrderPoints(order) {
+  try {
+    if (!order?.customerId) return
+    const earned = orderEarnsPoints(order)
+    settlePoints({
+      customerId: order.customerId,
+      sourceType: 'order', sourceRef: order.reference, branch: order.branch ?? null,
+      target: earned?.points ?? 0, spend: earned?.spend ?? 0,
+    })
+  } catch { /* the transaction is what matters; the ledger can be corrected */ }
+}
+
+// The same for a repair, which is paid at the counter when the device is handed back.
+function settleRepairPoints(repair) {
+  try {
+    const owner = repairOwner(repair)
+    if (!owner) return
+    const earned = repairEarnsPoints(repair)
+    settlePoints({
+      customerId: owner.id,
+      sourceType: 'repair', sourceRef: repair.ref, branch: repair.branch ?? null,
+      target: earned?.points ?? 0, spend: earned?.spend ?? 0,
+    })
+  } catch { /* as above */ }
+}
+
 export const OrderAPI = {
   // A customer sees only their own orders, staff only their branch's, an admin everything —
   // enforced here, so the `customerId` argument can only ever narrow, never widen.
@@ -756,6 +796,10 @@ export const OrderAPI = {
     // An order moving is as much the customer's business as a repair moving. Without this an
     // admin marked an order dispatched and nothing reached the person waiting for it.
     if (status !== previous) notifyOrderCustomer(o, status)
+    // Points land when the goods reach the customer, and go back if the order is later undone.
+    // Both are idempotent, so moving an order back and forth across the line — an ordinary
+    // mistake at a counter — cannot pay a customer twice.
+    if (status !== previous) settleOrderPoints(o)
     return o
   },
   // Handing an order to somebody to fulfil. Assigning also sets the branch when the order has
@@ -795,6 +839,7 @@ export const OrderAPI = {
     o.history = [...(o.history || []), ['cancelled', Date.now()]]
     saveJSON(KEYS.orders, list)
     notifyOrderCustomer(o, 'cancelled')
+    settleOrderPoints(o)
     for (const item of o.items || []) {
       try { await ProductAPI.adjustStock(item.productId, item.quantity, `Cancelled order ${ref}`) } catch { /* ignore */ }
     }
@@ -1274,6 +1319,237 @@ export const SettingsAPI = {
     requireCan(currentActor(), 'manageSettings')
     const all = loadJSON(KEYS.settings, {})
     all[key] = value; saveJSON(KEYS.settings, all); return value
+  },
+}
+
+// --- loyalty points --------------------------------------------------------------------------
+//
+// The balance is never stored. It is the sum of the movements below, which is what makes the
+// awkward cases safe: points cannot be earned twice for the same order because the earning entry
+// is already there, and a balance cannot silently drift out of step with its own history.
+//
+// One ledger for the whole business. A customer earning in Woolwich and spending in Orpington is
+// two rows on one account, not two accounts — the branch is recorded on the movement so the
+// admin can see where the scheme is being used, and is never used to scope the balance.
+
+function loyaltyEntries() {
+  return loadJSON(KEYS.loyalty, [])
+}
+
+const sumKind = (rows, kind) => rows.filter((e) => e.kind === kind)
+  .reduce((n, e) => n + Math.abs(Number(e.delta) || 0), 0)
+
+function writeLoyaltyEntry(entry) {
+  const list = loyaltyEntries()
+  const row = {
+    id: 'lp' + Date.now() + Math.random().toString(36).slice(2, 6),
+    at: Date.now(),
+    branch: null, sourceType: null, sourceRef: null, actorId: null, note: null,
+    ...entry,
+  }
+  list.unshift(row)
+  saveJSON(KEYS.loyalty, list)
+  return row
+}
+
+// Everything a screen needs to talk about an account's points, worked out in one place so the
+// customer's dashboard, the counter and the admin's report cannot disagree.
+function loyaltySummaryFor(customerId) {
+  const mine = loyaltyEntries().filter((e) => e.customerId === customerId)
+  const points = balanceFrom(mine)
+  return {
+    customerId,
+    points,
+    credit: creditValue(points),
+    // Gross figures, so "earned 425, reversed 370" reads as what happened rather than being
+    // netted into a single number that explains nothing.
+    earned: sumKind(mine, 'earned'),
+    redeemed: sumKind(mine, 'redeemed'),
+    reversed: sumKind(mine, 'reversed'),
+  }
+}
+
+// What the ledger has already credited for one transaction. Not "has this been recorded" —
+// that was the first attempt, and it was wrong in a way worth remembering: a one-shot guard meant
+// that once an order's points had been reversed, marking it delivered again could never pay them
+// back. A staff member correcting a mis-click silently cost the customer their points.
+//
+// Netting the movements for a source instead makes the ledger self-correcting: whatever has
+// happened to this order so far, the entitlement is a number, and the difference is what to post.
+function netForSource(customerId, sourceType, sourceRef) {
+  return balanceFrom(loyaltyEntries().filter((e) => e.customerId === customerId
+    && e.sourceType === sourceType && e.sourceRef === sourceRef))
+}
+
+// Bring one transaction's points into line with what it currently entitles the customer to.
+// `target` is that entitlement: the points for a finished transaction, or zero for one that has
+// been cancelled, refunded, or moved back before the finish line.
+function settlePoints({ customerId, sourceType, sourceRef, target, spend, branch }) {
+  if (!customerId) return null
+  // The decision itself is in lib/loyalty.js, with the awkward cases pinned by tests: what to
+  // post, and how far a clawback may go before it would take the account negative.
+  const delta = settlementDelta({
+    credited: netForSource(customerId, sourceType, sourceRef),
+    target,
+    balance: loyaltySummaryFor(customerId).points,
+  })
+  if (delta === 0) return null
+
+  const kind = delta > 0 ? 'earned' : 'reversed'
+  const entry = writeLoyaltyEntry({
+    customerId, delta, kind, sourceType, sourceRef, branch: branch ?? null,
+    note: delta > 0
+      ? `${delta} points on ${formatSpend(spend ?? 0)}`
+      : `${Math.abs(delta)} points returned on ${sourceRef}`,
+  })
+
+  if (delta > 0) {
+    notifyUser(customerId, {
+      title: `You earned ${delta} loyalty points`,
+      body: `${sourceRef} — your balance is now ${loyaltySummaryFor(customerId).points} points.`,
+      ref: sourceRef,
+      link: '/app/loyalty',
+    })
+  }
+  notifyChange(KEYS.loyalty)
+  return entry
+}
+
+// Redemption is one-shot in a way earning is not: spending points against a bill happens once,
+// at the moment the bill is committed, and there is no "un-spend and re-spend".
+function alreadyRedeemed(customerId, sourceType, sourceRef) {
+  return loyaltyEntries().some((e) => e.customerId === customerId && e.kind === 'redeemed'
+    && e.sourceType === sourceType && e.sourceRef === sourceRef)
+}
+
+const formatSpend = (n) => `£${Number(n).toFixed(2).replace(/\.00$/, '')}`
+
+export const LoyaltyAPI = {
+  // An account's balance and what it is worth. A customer may ask about themselves; staff and
+  // admins may ask about a named customer, because you cannot apply a discount you are not
+  // allowed to look at.
+  async summary(customerId) {
+    await delay(80)
+    const actor = requireAuth(currentActor())
+    const target = customerId ?? actor.id
+    if (target !== actor.id) requireCan(actor, 'viewCustomerLoyalty')
+    return loyaltySummaryFor(target)
+  },
+
+  // Every movement on the account, newest first. Scoped the same way.
+  async history(customerId) {
+    await delay(80)
+    const actor = requireAuth(currentActor())
+    if (customerId != null && customerId !== actor.id) requireCan(actor, 'viewCustomerLoyalty')
+    return scopeLoyalty(actor, loyaltyEntries(), customerId ?? actor.id)
+  },
+
+  // What may be put against a bill right now. The arithmetic is in lib/loyalty.js; this only
+  // supplies the balance, so the screen and the write agree on the cap.
+  async quote(customerId, total, requested) {
+    await delay(50)
+    const actor = requireAuth(currentActor())
+    const target = customerId ?? actor.id
+    if (target !== actor.id) requireCan(actor, 'viewCustomerLoyalty')
+    const { points } = loyaltySummaryFor(target)
+    return { ...applyRedemption({ balance: points, total, requested }), balance: points }
+  },
+
+  // Spending points against a transaction. Called at the point the transaction is committed —
+  // never earlier — so an abandoned checkout cannot leave a customer out of pocket.
+  //
+  // The balance is re-read here rather than trusted from the screen: the figure the customer saw
+  // was true when the page loaded, and the same account may have spent points at a branch since.
+  async redeem({ customerId, points, total, sourceType, sourceRef, branch }) {
+    const actor = requireAuth(currentActor())
+    const target = customerId ?? actor.id
+    if (target !== actor.id) requireCan(actor, 'redeemLoyaltyForCustomer')
+    if (alreadyRedeemed(target, sourceType, sourceRef)) {
+      throw new Error('Points have already been redeemed against this transaction.')
+    }
+    const held = loyaltySummaryFor(target).points
+    const { points: taking, discount } = applyRedemption({ balance: held, total, requested: points })
+    if (taking <= 0) return { points: 0, discount: 0 }
+    writeLoyaltyEntry({
+      customerId: target, delta: -taking, kind: 'redeemed',
+      sourceType, sourceRef, branch: branch ?? null, actorId: actor.id,
+      note: `${taking} points off ${sourceRef}`,
+    })
+    notifyChange(KEYS.loyalty)
+    return { points: taking, discount }
+  },
+
+  // Adding or removing points by hand. This is issuing or cancelling money owed to a customer,
+  // so it is admin-only and the reason is not optional — an adjustment nobody can account for is
+  // indistinguishable from a mistake.
+  async adjust(customerId, delta, reason) {
+    await delay(120)
+    const actor = requireAuth(currentActor())
+    requireCan(actor, 'adjustLoyalty')
+    const amount = Math.trunc(Number(delta) || 0)
+    if (!amount) throw new Error('Enter the number of points to add or remove.')
+    if (!reason || !String(reason).trim()) throw new Error('A reason is required for a manual adjustment.')
+    const held = loyaltySummaryFor(customerId).points
+    if (held + amount < 0) {
+      throw new Error(`That would take the balance below zero — this account holds ${held} points.`)
+    }
+    const entry = writeLoyaltyEntry({
+      customerId, delta: amount, kind: 'adjusted',
+      sourceType: 'adjustment', sourceRef: null,
+      actorId: actor.id, note: String(reason).trim(),
+    })
+    notifyUser(customerId, {
+      title: amount > 0 ? `${amount} loyalty points added` : `${Math.abs(amount)} loyalty points removed`,
+      body: String(reason).trim(),
+      link: '/app/loyalty',
+    })
+    notifyChange(KEYS.loyalty)
+    return entry
+  },
+
+  // The scheme across all eight branches: what it is earning and what it is costing. Admin only —
+  // this is business-wide financial data, not a branch's or a customer's.
+  async report() {
+    await delay(150)
+    const actor = requireAuth(currentActor())
+    requireCan(actor, 'viewLoyaltyReports')
+    const entries = loyaltyEntries()
+    const users = loadJSON(KEYS.users, seedUsers())
+    const nameOf = (id) => users.find((u) => u.id === id)?.name ?? id
+
+    const byCustomer = new Map()
+    for (const e of entries) {
+      const row = byCustomer.get(e.customerId) ?? { customerId: e.customerId, points: 0, earned: 0, redeemed: 0 }
+      row.points += e.delta
+      if (e.delta > 0) row.earned += e.delta
+      if (e.kind === 'redeemed') row.redeemed += Math.abs(e.delta)
+      byCustomer.set(e.customerId, row)
+    }
+
+    const byBranch = new Map()
+    for (const e of entries) {
+      const key = e.branch ?? 'web'
+      const row = byBranch.get(key) ?? { branch: key, earned: 0, redeemed: 0 }
+      if (e.delta > 0) row.earned += e.delta
+      if (e.kind === 'redeemed') row.redeemed += Math.abs(e.delta)
+      byBranch.set(key, row)
+    }
+
+    const earned = entries.filter((e) => e.delta > 0).reduce((n, e) => n + e.delta, 0)
+    const redeemed = entries.filter((e) => e.kind === 'redeemed').reduce((n, e) => n + Math.abs(e.delta), 0)
+    const outstanding = balanceFrom(entries)
+    return {
+      earned,
+      redeemed,
+      outstanding,
+      // What the shop would owe if every customer spent everything they hold today.
+      liability: creditValue(outstanding),
+      customers: [...byCustomer.values()]
+        .map((r) => ({ ...r, name: nameOf(r.customerId), credit: creditValue(r.points) }))
+        .sort((a, b) => b.points - a.points),
+      branches: [...byBranch.values()].sort((a, b) => b.earned - a.earned),
+      entries,
+    }
   },
 }
 
