@@ -44,6 +44,7 @@ const MyOrders = lazy(()=>import('@/pages/customer/MyOrders.jsx'))
 const SellDevice = lazy(()=>import('@/pages/customer/SellDevice.jsx'))
 const TradeInTracking = lazy(()=>import('@/pages/customer/TradeInTracking.jsx'))
 const Profile = lazy(()=>import('@/pages/customer/Profile.jsx'))
+const CxLoyalty = lazy(()=>import('@/pages/customer/Loyalty.jsx'))
 // staff
 const StDashboard = lazy(()=>import('@/pages/staff/Dashboard.jsx'))
 const AssignedRepairs = lazy(()=>import('@/pages/staff/AssignedRepairs.jsx'))
@@ -124,6 +125,7 @@ export default function AppRoutes(){
           <Route path="sell" element={<SellDevice/>}/>
           <Route path="sell/:ref" element={<TradeInTracking/>}/>
           <Route path="orders" element={<MyOrders/>}/>
+          <Route path="loyalty" element={<CxLoyalty/>}/>
           <Route path="profile" element={<Profile/>}/>
         </Route>
 
