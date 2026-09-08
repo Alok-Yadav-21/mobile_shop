@@ -5,7 +5,10 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useCart } from '@/context/CartContext.jsx'
 import { useAuth } from '@/hooks/useAuth.js'
-import { OrderAPI } from '@/services/api.js'
+import { OrderAPI, LoyaltyAPI } from '@/services/api.js'
+import { useAsync } from '@/hooks/useAsync.js'
+import { LoyaltyRedeemer } from '@/components/common/LoyaltyRedeemer.jsx'
+import { applyRedemption } from '@/lib/loyalty.js'
 import { money } from '@/utils/format.js'
 import { ShieldCheck, Lock } from 'lucide-react'
 
@@ -25,6 +28,11 @@ export default function Checkout(){
   const { user } = useAuth() || {}
   const navigate = useNavigate()
   const [submitting,setSubmitting]=useState(false)
+  // Points are only offered to a signed-in customer: a guest checkout has no account to take
+  // them from or credit them to.
+  const { data:loyalty } = useAsync(()=> user ? LoyaltyAPI.summary() : Promise.resolve(null), [user?.id])
+  const [pointsToUse,setPointsToUse]=useState(0)
+  const redemption = applyRedemption({ balance: loyalty?.points ?? 0, total: subtotal, requested: pointsToUse })
   const { register, handleSubmit, formState:{ errors } } = useForm({
     resolver: zodResolver(schema),
     defaultValues: { name:user?.name||'', email:user?.email||'', phone:'', address:'', postcode:'', cardNumber:'', cardExpiry:'', cardCvc:'' },
@@ -41,7 +49,13 @@ export default function Checkout(){
       phone: data.phone,
       deliveryAddress: `${data.address}, ${data.postcode}`,
       items: lines.map(l=>({ productId:l.productId, name:l.product.name, price:l.product.price, quantity:l.quantity })),
-      total: subtotal,
+      // What the customer actually pays, so the order, the reports and the points all agree on
+      // one figure. The discount is recorded alongside it rather than folded away, or the
+      // order's total would not reconcile against its own line items.
+      subtotal,
+      loyaltyPointsUsed: redemption.points,
+      loyaltyDiscount: redemption.discount,
+      total: redemption.payable,
       // Ledger fields the admin reports aggregate on. A web checkout is a card payment with no
       // originating branch — reports surface these under "Web / unassigned" so the branch rows
       // and the overall total still reconcile.
@@ -49,6 +63,22 @@ export default function Checkout(){
       paymentMethod: 'online',
       branch: null,
     })
+    // Deducted only now, with the order made — an abandoned checkout must never cost anybody
+    // their points. The adapter re-checks the balance and the cap as it writes, because the
+    // figure on screen was true when the page loaded and the same account may have spent points
+    // at a branch since.
+    if(redemption.points > 0){
+      try{
+        await LoyaltyAPI.redeem({
+          customerId: user.id, points: redemption.points, total: subtotal,
+          sourceType: 'order', sourceRef: order.reference, branch: null,
+        })
+      } catch(e){
+        // The order exists and is paid for; a points problem is not a reason to lose it. The
+        // customer keeps the points and an admin can reconcile.
+        console.warn('loyalty redemption not applied:', e.message)
+      }
+    }
     await clear()
     setSubmitting(false)
     navigate(`/order-confirmation/${order.reference}`)
@@ -91,7 +121,18 @@ export default function Checkout(){
               <span className="truncate pr-2">{l.product.name} × {l.quantity}</span><span className="mono-data flex-none">{money(l.product.price*l.quantity)}</span>
             </div>
           ))}
-          <div className="flex justify-between font-bold text-[16px] pt-4 mt-2 border-t border-graphite-200"><span>Total</span><span className="mono-data">{money(subtotal)}</span></div>
+          {user && (
+            <div className="mt-4">
+              <LoyaltyRedeemer balance={loyalty?.points ?? 0} total={subtotal}
+                value={pointsToUse} onChange={setPointsToUse} disabled={submitting}/>
+            </div>
+          )}
+          {redemption.points > 0 && (
+            <div className="flex justify-between text-[13px] text-emerald-600 font-semibold mt-3">
+              <span>{redemption.points} loyalty points</span><span className="mono-data">−{money(redemption.discount)}</span>
+            </div>
+          )}
+          <div className="flex justify-between font-bold text-[16px] pt-4 mt-2 border-t border-graphite-200"><span>Total</span><span className="mono-data">{money(redemption.payable)}</span></div>
           <button type="submit" disabled={submitting} className="btn btn-brand w-full mt-6 disabled:opacity-60">{submitting?'Placing order…':'Place order'}</button>
           <p className="text-[10.5px] text-graphite-400 mt-3 text-center">By ordering you agree to our <Link to="/terms" className="underline">Terms</Link> and <Link to="/warranty" className="underline">Warranty</Link> policy.</p>
         </div>

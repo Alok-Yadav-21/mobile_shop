@@ -1,6 +1,6 @@
 import { LayoutDashboard, Wrench, ClipboardList, PackageSearch, ShoppingBag, Users,
   UserCog, Tags, CreditCard, BarChart3, Settings, Boxes, ArrowLeftRight, ListChecks,
-  Calendar, User, Package, MapPin, ShieldCheck, History, Wallet, CalendarClock } from 'lucide-react'
+  Calendar, User, Package, MapPin, ShieldCheck, History, Wallet, CalendarClock, Star } from 'lucide-react'
 
 export const PUBLIC_NAV = [
   { label:'Home', to:'/' },
@@ -18,6 +18,7 @@ export const CUSTOMER_NAV = [
   { label:'My repairs', to:'/app/repairs', icon:ClipboardList },
   { label:'Sell my device', to:'/app/sell', icon:ArrowLeftRight },
   { label:'My orders', to:'/app/orders', icon:ShoppingBag },
+  { label:'Loyalty points', to:'/app/loyalty', icon:Star },
   { label:'Profile', to:'/app/profile', icon:User },
 ]
 

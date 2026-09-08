@@ -1,15 +1,17 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth.js'
 import { useAsync } from '@/hooks/useAsync.js'
-import { RepairAPI, OrderAPI } from '@/services/api.js'
+import { RepairAPI, OrderAPI, LoyaltyAPI } from '@/services/api.js'
 import { DashboardCard } from '@/components/common/DashboardCard.jsx'
 import { StatusBadge } from '@/components/common/StatusBadge.jsx'
-import { Wrench, ClipboardList, ShoppingBag, ArrowLeftRight, ArrowRight } from 'lucide-react'
+import { money } from '@/utils/format.js'
+import { Wrench, ClipboardList, ShoppingBag, ArrowLeftRight, ArrowRight, Star } from 'lucide-react'
 
 export default function Dashboard(){
   const { user } = useAuth()
   const { data:reps=[] } = useAsync(()=>RepairAPI.forCustomer(), [user])
   const { data:orders=[] } = useAsync(()=>OrderAPI.list(user?.id), [user])
+  const { data:loyalty } = useAsync(()=>LoyaltyAPI.summary(), [user?.id])
   const active = reps.filter(r=>!['Completed','Cancelled'].includes(r.status)).length
 
   return (
@@ -17,10 +19,16 @@ export default function Dashboard(){
       <h1 className="text-2xl font-extrabold tracking-tight">Welcome back, {user?.name?.split(' ')[0]||'there'}</h1>
       <p className="text-graphite-400 mt-1 text-[14px]">Book a repair, track progress or shop the latest tech.</p>
 
-      <div className="grid sm:grid-cols-3 gap-4 mt-6">
-        <DashboardCard icon={Wrench} label="Active repairs" value={active} tone="brand"/>
-        <DashboardCard icon={ClipboardList} label="Total repairs" value={reps.length} tone="violet"/>
-        <DashboardCard icon={ShoppingBag} label="Orders" value={orders.length} tone="green"/>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
+        <DashboardCard icon={Wrench} label="Active repairs" value={active} tone="brand" index={0}/>
+        <DashboardCard icon={ClipboardList} label="Total repairs" value={reps.length} tone="violet" index={1}/>
+        <DashboardCard icon={ShoppingBag} label="Orders" value={orders.length} tone="green" index={2}/>
+        {/* The credit, not the raw points: what it is worth is the part a customer acts on, and
+            the points are one click away on the loyalty page. */}
+        <Link to="/app/loyalty" className="block">
+          <DashboardCard icon={Star} label="Loyalty points" value={loyalty?.points ?? 0} tone="amber" index={3}
+            hint={`${money(loyalty?.credit ?? 0)} credit available`}/>
+        </Link>
       </div>
 
       <div className="grid sm:grid-cols-2 gap-4 mt-4">
