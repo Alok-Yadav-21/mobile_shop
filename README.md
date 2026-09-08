@@ -140,9 +140,10 @@ what payments still need, and the things that are deliberately yours to do.
 ### Checking the rules still hold
 
 ```bash
-bash supabase/tests/run.sh            # every migration + 55 authorisation checks, in Postgres
+bash supabase/tests/run.sh            # every migration + 73 authorisation checks, in Postgres
 node scripts/probe-rls.mjs            # the same rules over HTTP, with real signed-in sessions
 node scripts/probe-staff-accounts.mjs # the admin-only account endpoint, attacked directly
+node scripts/probe-loyalty.mjs        # the loyalty ledger: earning, spending, and helping yourself
 ```
 
 Each reports whether a row actually moved, not whether an error was raised — a blocked UPDATE

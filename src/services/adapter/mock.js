@@ -35,7 +35,7 @@ import { assertMayPatchRepair, assertMayAssign } from '@/lib/repairRules.js'
 import { notifyChange } from '@/services/liveStore.js'
 import { redactUnsentQuote, QUOTE_SENT_STATUS } from '@/lib/quotes.js'
 import {
-  balanceFrom, creditValue, applyRedemption, settlementDelta,
+  balanceFrom, creditValue, applyRedemption, settlementDelta, creditedForSource,
   orderEarnsPoints, repairEarnsPoints,
 } from '@/lib/loyalty.js'
 import {
@@ -1376,11 +1376,6 @@ function loyaltySummaryFor(customerId) {
 //
 // Netting the movements for a source instead makes the ledger self-correcting: whatever has
 // happened to this order so far, the entitlement is a number, and the difference is what to post.
-function netForSource(customerId, sourceType, sourceRef) {
-  return balanceFrom(loyaltyEntries().filter((e) => e.customerId === customerId
-    && e.sourceType === sourceType && e.sourceRef === sourceRef))
-}
-
 // Bring one transaction's points into line with what it currently entitles the customer to.
 // `target` is that entitlement: the points for a finished transaction, or zero for one that has
 // been cancelled, refunded, or moved back before the finish line.
@@ -1389,7 +1384,7 @@ function settlePoints({ customerId, sourceType, sourceRef, target, spend, branch
   // The decision itself is in lib/loyalty.js, with the awkward cases pinned by tests: what to
   // post, and how far a clawback may go before it would take the account negative.
   const delta = settlementDelta({
-    credited: netForSource(customerId, sourceType, sourceRef),
+    credited: creditedForSource(loyaltyEntries(), { customerId, sourceType, sourceRef }),
     target,
     balance: loyaltySummaryFor(customerId).points,
   })
@@ -1479,6 +1474,60 @@ export const LoyaltyAPI = {
     return { points: taking, discount }
   },
 
+  // The counter's view of a repair: whose points, how many, and what may be put against this
+  // job. Resolved from the repair rather than taken from the page, so a staff screen never has
+  // to work out which account a walk-in belongs to — and cannot be talked into the wrong one.
+  async forRepair(ref) {
+    await delay(80)
+    const actor = requireAuth(currentActor())
+    requireCan(actor, 'viewCustomerLoyalty')
+    const repair = scopeRepairs(actor, loadJSON(KEYS.repairs, REPAIRS)).find((x) => x.ref === ref)
+    if (!repair) return null
+    const owner = repairOwner(repair)
+    // A walk-in booked at the counter has no account, so there is nothing to show and nothing
+    // to spend. Not an error — most branch bookings will look like this.
+    if (!owner) return { customerId: null, points: 0, credit: 0, hasAccount: false }
+    const already = loyaltyEntries().find((e) => e.customerId === owner.id && e.kind === 'redeemed'
+      && e.sourceType === 'repair' && e.sourceRef === ref)
+    return {
+      ...loyaltySummaryFor(owner.id),
+      customerName: owner.name,
+      hasAccount: true,
+      // What has already been put against this job, so the screen shows the discount rather
+      // than offering to apply a second one.
+      appliedPoints: already ? Math.abs(already.delta) : 0,
+    }
+  },
+
+  // Putting points against a repair at the counter. The repair's own rule applies: a job belongs
+  // to the technician it was assigned to, and a discount on it is as much part of that record as
+  // the quote is.
+  async redeemForRepair(ref, points) {
+    await delay(120)
+    const actor = requireAuth(currentActor())
+    requireCan(actor, 'redeemLoyaltyForCustomer')
+    const list = loadJSON(KEYS.repairs, REPAIRS)
+    const repair = scopeRepairs(actor, list).find((x) => x.ref === ref)
+    if (!repair) return null
+    if (!isAdmin(actor)) requireAssignedTechnician(actor, repair)
+    const owner = repairOwner(repair)
+    if (!owner) throw new Error('This booking is not attached to a customer account.')
+
+    const applied = await LoyaltyAPI.redeem({
+      customerId: owner.id, points, total: Number(repair.quote) || 0,
+      sourceType: 'repair', sourceRef: ref, branch: repair.branch,
+    })
+    if (applied.points > 0) {
+      // Recorded on the repair, not deducted from the quote: the quote is what the customer
+      // approved and must stay what they approved. What is owed at the counter is the quote
+      // less this, and the points the job goes on to earn are based on that figure too.
+      repair.loyaltyPointsUsed = applied.points
+      repair.loyaltyDiscount = applied.discount
+      saveJSON(KEYS.repairs, list)
+    }
+    return applied
+  },
+
   // Adding or removing points by hand. This is issuing or cancelling money owed to a customer,
   // so it is admin-only and the reason is not optional — an adjustment nobody can account for is
   // indistinguishable from a mistake.
@@ -1528,6 +1577,10 @@ export const LoyaltyAPI = {
 
     const byBranch = new Map()
     for (const e of entries) {
+      // A manual adjustment is an admin decision, not trade done at a counter. Bucketing it by
+      // its (absent) branch put it under "Web / unassigned" alongside real web orders, which
+      // makes the web column look like activity it isn't.
+      if (e.sourceType === 'adjustment') continue
       const key = e.branch ?? 'web'
       const row = byBranch.get(key) ?? { branch: key, earned: 0, redeemed: 0 }
       if (e.delta > 0) row.earned += e.delta

@@ -42,6 +42,7 @@ export const ADMIN_NAV = [
   { label:'Repair services', to:'/admin/services', icon:PackageSearch },
   { label:'Orders', to:'/admin/orders', icon:ShoppingBag },
   { label:'Payments', to:'/admin/payments', icon:CreditCard },
+  { label:'Loyalty points', to:'/admin/loyalty', icon:Star },
   { label:'Customers', to:'/admin/customers', icon:Users },
   { label:'Staff', to:'/admin/staff', icon:UserCog },
   { label:'Timesheets', to:'/admin/timesheets', icon:CalendarClock },

@@ -8,6 +8,7 @@ import { canAssign, can } from '@/lib/permissions.js'
 import { QUOTE_SENT_STATUS } from '@/lib/quotes.js'
 import { REPAIR_FLOW, nextStatuses } from '@/constants/status.js'
 import { RepairTimeline } from '@/components/common/RepairTimeline.jsx'
+import { LoyaltyAtCounter } from '@/components/common/LoyaltyAtCounter.jsx'
 import { StatusBadge } from '@/components/common/StatusBadge.jsx'
 import { ReasonDialog } from '@/components/common/ReasonDialog.jsx'
 import { useAuth } from '@/hooks/useAuth.js'
@@ -140,7 +141,15 @@ export default function RepairDetails(){
             <button onClick={()=>setCancelling(true)} className="text-[12.5px] font-semibold text-rose-600 hover:underline">Cancel this repair</button>
           )}
         </div>
-        <div className="surface p-5"><h3 className="font-bold text-[13.5px] mb-3">Progress</h3><RepairTimeline repair={r}/></div>
+        <div className="space-y-4">
+          <div className="surface p-5"><h3 className="font-bold text-[13.5px] mb-3">Progress</h3><RepairTimeline repair={r}/></div>
+          {/* Whoever is handing the device back needs the customer's balance in front of them,
+              or the discount never gets offered. Same rule as the quote: the job's own
+              technician, or an admin. */}
+          <LoyaltyAtCounter repairRef={r.ref} quote={r.quote} user={user}
+            canApply={mine || can(user?.role,'adjustLoyalty')} blockedReason={blockedReason}
+            onApplied={refetch}/>
+        </div>
       </div>
 
       <div className="surface p-5 mt-4">

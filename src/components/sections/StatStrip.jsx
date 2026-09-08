@@ -1,8 +1,14 @@
+import { LOYALTY_RATE_PCT } from '@/lib/loyalty.js'
+
+// The loyalty figure is derived from the scheme rather than typed here: 5 points per complete
+// £10, and 10 points are worth £2, which is 10% back. It read 4% before the scheme existed, and
+// a headline percentage that does not match what the till actually gives back is the kind of
+// claim a customer can hold you to.
 const STATS = [
   ['8', 'Branches across London & Kent'],
   ['3mo', 'Warranty on every repair'],
   ['15m', 'Average diagnostic time'],
-  ['4%', 'Loyalty back on every visit'],
+  [`${LOYALTY_RATE_PCT}%`, 'Loyalty points back on every visit'],
 ]
 export function StatStrip(){
   return (

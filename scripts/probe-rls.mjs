@@ -95,11 +95,17 @@ const seen = await customer.from('repairs_for_customer').select('quote').eq('ref
 check(seen.data == null || seen.data.quote == null, 'customer cannot read a quote that has not been sent')
 
 console.log('\n== reading other people’s records ==')
-const otherRepairs = await customer.from('repairs').select('reference')
+// The property, not a list of references. Naming the three it should see made this fail the
+// moment another probe booked a repair for the same customer — which is a dirty database, not a
+// leak, and a check that cannot tell those apart is worse than no check.
+const otherRepairs = await customer.from('repairs').select('reference, customer_id')
+const { count: totalRepairs } = await admin.from('repairs').select('*', { count: 'exact', head: true })
 check(
-  (otherRepairs.data ?? []).every((r) => ['SPR-4805', 'SPR-4807', REF].includes(r.reference)),
+  (otherRepairs.data ?? []).length > 0
+    && (otherRepairs.data ?? []).every((r) => r.customer_id === ids.customer)
+    && (otherRepairs.data ?? []).length < (totalRepairs ?? 0),
   'customer reads only their own repairs',
-  `saw ${(otherRepairs.data ?? []).length}`)
+  `saw ${(otherRepairs.data ?? []).length} of ${totalRepairs}`)
 
 // Something to leak. "Nobody could read it" is not a finding when there was nothing there:
 // with the policy removed these checks would still have passed against empty tables.
