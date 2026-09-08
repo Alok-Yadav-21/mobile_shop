@@ -4,5 +4,6 @@
 export {
   RepairAPI, ProductAPI, CategoryAPI, ServiceAPI, BranchAPI, CartAPI, OrderAPI, TradeInAPI,
   AuthAPI, UserAPI, NotificationAPI, AuditAPI, SettingsAPI, AddressAPI, WarrantyAPI, ShiftAPI, PurchaseAPI,
+  LoyaltyAPI,
   TECHS, isMockBackend,
 } from './adapter/index.js'

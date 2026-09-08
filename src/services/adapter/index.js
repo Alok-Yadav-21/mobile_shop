@@ -24,5 +24,6 @@ export const AuditAPI = Adapter.AuditAPI
 export const SettingsAPI = Adapter.SettingsAPI
 export const AddressAPI = Adapter.AddressAPI
 export const WarrantyAPI = Adapter.WarrantyAPI
+export const LoyaltyAPI = Adapter.LoyaltyAPI
 export const TECHS = Adapter.TECHS
 export { isMockBackend }

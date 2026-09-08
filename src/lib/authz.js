@@ -136,6 +136,26 @@ export function scopeOwned(actor, rows, requestedOwnerId, key = 'customerId') {
   return rows.filter((r) => r[key] === actor.id)
 }
 
+// Loyalty movements. Deliberately not scopeOwned: a staff member at the counter has to be able
+// to see the balance of the customer standing in front of them, or they cannot apply a discount
+// they are permitted to apply — but that is one named customer, not a list of everybody's.
+//
+// So: a customer sees their own and nothing else. Staff see one named customer's, or their own
+// when they name nobody. An admin sees whatever they ask for, including the whole scheme, which
+// is what the loyalty report is.
+export function scopeLoyalty(actor, entries, requestedOwnerId) {
+  requireAuth(actor)
+  if (requestedOwnerId != null) {
+    if (isCustomer(actor) && requestedOwnerId !== actor.id) {
+      throw new AuthzError('You can only see your own loyalty points.')
+    }
+    return entries.filter((e) => e.customerId === requestedOwnerId)
+  }
+  // Naming nobody means "mine" — for staff and admins too. An admin wanting the whole scheme
+  // asks for it explicitly through the report, which is a separate capability.
+  return entries.filter((e) => e.customerId === actor.id)
+}
+
 export function scopeTradeIns(actor, tradeIns) {
   requireAuth(actor)
   if (isAdmin(actor) || isStaff(actor)) return tradeIns

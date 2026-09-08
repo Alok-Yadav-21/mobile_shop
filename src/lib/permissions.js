@@ -86,6 +86,19 @@ const CAPABILITIES = {
   changeOwnPassword: [CUSTOMER, ADMIN],
   manageSignInDetails: [ADMIN],
 
+  // loyalty points
+  // Everyone can see their own balance. A customer's balance is also a staff matter at the
+  // counter — you cannot apply a discount you are not allowed to look at — but only for a named
+  // customer being served, never as a list of everyone (see scopeLoyalty in lib/authz.js).
+  viewCustomerLoyalty: [STAFF, ADMIN],
+  // Putting points against a bill on the customer's behalf, at the counter.
+  redeemLoyaltyForCustomer: [STAFF, ADMIN],
+  // Adding or removing points by hand. This is issuing or cancelling money owed to a customer,
+  // so it is an admin decision and it always carries a reason.
+  adjustLoyalty: [ADMIN],
+  // The scheme across all eight branches — what it is costing and what it is earning.
+  viewLoyaltyReports: [ADMIN],
+
   // platform
   manageSettings: [ADMIN],
   viewAuditLog: [ADMIN],
