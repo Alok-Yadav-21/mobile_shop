@@ -109,6 +109,10 @@ body{ @apply bg-white text-ink antialiased; font-family: theme('fontFamily.sans'
 }
 
 @layer utilities{
+  /* Entrance for the authentication pages: a short rise and fade, used once on load. Additive —
+     no existing class is altered, and the reduced-motion backstop further down disables it. */
+  @keyframes auth-rise{ from{ opacity:0; transform:translateY(14px); } to{ opacity:1; transform:none; } }
+
   .animate-ping-slow{ animation: ping-slow 2.2s cubic-bezier(0,0,.2,1) infinite; }
   @keyframes ping-slow{ 0%{ transform:scale(1); opacity:.7; } 75%,100%{ transform:scale(2.2); opacity:0; } }
   .no-scrollbar::-webkit-scrollbar{ display:none; }

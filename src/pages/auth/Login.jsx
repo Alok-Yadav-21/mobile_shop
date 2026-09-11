@@ -6,8 +6,9 @@ import { ROLE_HOME } from '@/constants/roles.js'
 import { BRAND } from '@/constants/brand.js'
 import { DEMO_SIGN_IN } from '@/data/credentials.js'
 import { isMockBackend } from '@/lib/supabaseClient.js'
-import { Logo } from '@/components/common/Logo.jsx'
-import { Eye, EyeOff, Loader2 } from 'lucide-react'
+import { AuthShell } from '@/components/auth/AuthShell.jsx'
+import { AuthField, authInput, authButton } from '@/components/auth/AuthField.jsx'
+import { Eye, EyeOff, Loader2, AtSign, KeyRound } from 'lucide-react'
 
 // One form for all three roles. Which area someone lands in is decided by the account they
 // signed into — the form never asks, and never offers a choice, because choosing your own role
@@ -39,88 +40,93 @@ export default function Login(){
   }
 
   return (
-    <div className="min-h-screen grid place-items-center bg-graphite-50 p-5">
-      <div className="w-full max-w-md">
-        <div className="flex justify-center mb-6"><Logo/></div>
-        <div className="surface p-8">
-          <div className="text-center">
-            <h1 className="text-xl font-extrabold tracking-tight">Sign in to Virktech</h1>
-            <p className="text-[12px] text-graphite-400 mt-1">{BRAND.recognition}</p>
-          </div>
+    <AuthShell
+      title="Welcome back"
+      subtitle="Sign in to manage your repairs, devices and services."
+      note={BRAND.recognition}
+      footer={
+        <p className="mt-6 text-center text-[13.5px] text-graphite-600">
+          New customer?{' '}
+          <Link to="/register" className="font-bold text-brand underline-offset-4 hover:underline">Create an account</Link>
+        </p>
+      }
+    >
+      <form onSubmit={submit} className="mt-8 space-y-5">
+        <AuthField
+          label="Email or username"
+          icon={AtSign}
+          // Customers use the email they registered with; staff use the username their admin
+          // issued. An email always has an @ and a username never may, so one field can take
+          // either without ambiguity.
+          hint="Customers sign in with their email. Staff use the username issued by their admin."
+        >
+          <input
+            value={identifier} onChange={e=>setIdentifier(e.target.value)}
+            autoComplete="username" autoFocus
+            placeholder="you@email.com"
+            className={authInput()}
+          />
+        </AuthField>
 
-          <form onSubmit={submit} className="mt-6 space-y-3.5">
-            <label className="block">
-              <span className="text-[12.5px] font-semibold text-graphite-600">Email or username</span>
-              <input
-                value={identifier} onChange={e=>setIdentifier(e.target.value)}
-                autoComplete="username" autoFocus
-                placeholder="you@email.com"
-                className="input-field mt-1.5"
-              />
-              {/* Customers use the email they registered with; staff use the username their
-                  admin issued. An email always has an @ and a username never may, so one
-                  field can take either without ambiguity. */}
-              <span className="block text-[11.5px] text-graphite-400 mt-1.5">
-                Customers sign in with their email. Staff use the username issued by their admin.
-              </span>
-            </label>
+        <AuthField
+          label="Password"
+          icon={KeyRound}
+          trailing={
+            <button
+              type="button" onClick={()=>setShowPassword(s=>!s)}
+              aria-label={showPassword?'Hide password':'Show password'}
+              className="absolute right-2 top-1/2 z-[1] -translate-y-1/2 rounded-lg p-2 text-graphite-400 transition-colors hover:bg-graphite-50 hover:text-ink"
+            >{showPassword?<EyeOff size={16}/>:<Eye size={16}/>}</button>
+          }
+        >
+          <input
+            type={showPassword?'text':'password'} value={password}
+            onChange={e=>setPassword(e.target.value)} autoComplete="current-password"
+            placeholder="Your password" className={authInput({ trailing:true })}
+          />
+        </AuthField>
 
-            <label className="block">
-              <span className="text-[12.5px] font-semibold text-graphite-600">Password</span>
-              <div className="relative mt-1.5">
-                <input
-                  type={showPassword?'text':'password'} value={password}
-                  onChange={e=>setPassword(e.target.value)} autoComplete="current-password"
-                  placeholder="Your password" className="input-field pr-11"
-                />
+        {error && (
+          <p role="alert" className="rounded-xl border border-brand-100 bg-brand-50 px-4 py-3 text-[12.5px] font-semibold text-brand-700">
+            {error}
+          </p>
+        )}
+
+        <button type="submit" disabled={busy} className={authButton}>
+          {busy ? <><Loader2 size={16} className="animate-spin"/> Signing in…</> : 'Sign in'}
+        </button>
+      </form>
+
+      <div className="mt-7 border-t border-graphite-100 pt-5">
+        <p className="text-center text-[11.5px] leading-relaxed text-graphite-400">
+          Staff accounts are created by an admin — ask your branch manager for your details.
+        </p>
+
+        {/* The demo runs with no server, so the seeded accounts are listed here or nobody can
+            get in at all. Once a real backend is configured they are neither true nor anyone's
+            business, so the block goes — enforced by the same flag that chooses the adapter
+            rather than by remembering to delete it before going live. */}
+        {isMockBackend && (
+        <details className="group mt-4">
+          <summary className="flex cursor-pointer select-none items-center justify-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-[.1em] text-graphite-400 transition-colors hover:text-ink">
+            Demo sign-in details
+            <span className="transition-transform duration-200 group-open:rotate-90">›</span>
+          </summary>
+          <ul className="mt-3 space-y-1.5 rounded-xl border border-graphite-100 bg-graphite-50 p-3">
+            {DEMO_SIGN_IN.map(d=>(
+              <li key={d.identifier} className="flex items-center justify-between gap-3 text-[11.5px]">
+                <span className="font-semibold text-graphite-600">{d.label}</span>
                 <button
-                  type="button" onClick={()=>setShowPassword(s=>!s)}
-                  aria-label={showPassword?'Hide password':'Show password'}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-graphite-400 hover:text-ink"
-                >{showPassword?<EyeOff size={16}/>:<Eye size={16}/>}</button>
-              </div>
-            </label>
-
-            {error && (
-              <p role="alert" className="text-[12.5px] font-semibold text-brand bg-brand-50 rounded-xl px-3.5 py-2.5">{error}</p>
-            )}
-
-            <button type="submit" disabled={busy} className="btn btn-brand w-full disabled:opacity-60">
-              {busy ? <><Loader2 size={15} className="animate-spin"/> Signing in…</> : 'Sign in'}
-            </button>
-          </form>
-
-          <p className="text-center text-[13.5px] text-graphite-500 mt-6">
-            New customer? <Link to="/register" className="text-brand font-semibold">Create an account</Link>
-          </p>
-          <p className="text-center text-[11.5px] text-graphite-400 mt-2">
-            Staff accounts are created by an admin — ask your branch manager for your details.
-          </p>
-
-          {/* The demo runs with no server, so the seeded accounts are listed here or nobody can
-              get in at all. Once a real backend is configured they are neither true nor anyone's
-              business, so the block goes — enforced by the same flag that chooses the adapter
-              rather than by remembering to delete it before going live. */}
-          {isMockBackend && (
-          <details className="mt-6 border-t border-graphite-100 pt-4">
-            <summary className="text-[12px] text-graphite-400 cursor-pointer select-none">Demo sign-in details</summary>
-            <ul className="mt-2.5 space-y-1.5">
-              {DEMO_SIGN_IN.map(d=>(
-                <li key={d.identifier} className="flex items-center justify-between gap-3 text-[12px]">
-                  <span className="text-graphite-500">{d.label}</span>
-                  <button
-                    type="button"
-                    onClick={()=>{ setIdentifier(d.identifier); setPassword(d.password); setError('') }}
-                    className="mono-data text-graphite-600 hover:text-brand text-right"
-                  >{d.identifier} / {d.password}</button>
-                </li>
-              ))}
-            </ul>
-          </details>
-          )}
-        </div>
-        <p className="text-center text-[12px] text-graphite-400 mt-5"><Link to="/" className="hover:text-brand">Back to Virktech</Link></p>
+                  type="button"
+                  onClick={()=>{ setIdentifier(d.identifier); setPassword(d.password); setError('') }}
+                  className="mono-data rounded-md px-2 py-1 text-right text-graphite-600 transition-colors hover:bg-white hover:text-brand"
+                >{d.identifier} / {d.password}</button>
+              </li>
+            ))}
+          </ul>
+        </details>
+        )}
       </div>
-    </div>
+    </AuthShell>
   )
 }
