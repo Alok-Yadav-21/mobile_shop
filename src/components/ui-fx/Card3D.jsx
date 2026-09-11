@@ -9,10 +9,7 @@ import { cn } from '@/lib/cn.js'
 // MAX_TILT is small enough that text stays square to the eye and legible while tilted.
 const MAX_TILT = 7
 
-// `lift` is the scale applied while the cursor is over the card. It reads well over a photograph
-// and badly over text: the browser rasterises the card once and then scales that bitmap, so even
-// two per cent of magnification leaves type visibly soft. Pass lift={1} on anything text-heavy.
-export function Card3D({ children, className, containerClassName, intensity = 1, lift = 1.02 }) {
+export function Card3D({ children, className, containerClassName, intensity = 1 }) {
   const ref = useRef(null)
   const reduce = useReducedMotion()
   const [active, setActive] = useState(false)
@@ -26,9 +23,8 @@ export function Card3D({ children, className, containerClassName, intensity = 1,
     const px = (e.clientX - r.left) / r.width - 0.5
     const py = (e.clientY - r.top) / r.height - 0.5
     const tilt = MAX_TILT * intensity
-    const scale = lift === 1 ? '' : ` scale(${lift})`
-    el.style.transform = `rotateY(${px * tilt}deg) rotateX(${-py * tilt}deg)${scale}`
-  }, [reduce, intensity, lift])
+    el.style.transform = `rotateY(${px * tilt}deg) rotateX(${-py * tilt}deg) scale(1.02)`
+  }, [reduce, intensity])
 
   const reset = useCallback(() => {
     setActive(false)
@@ -45,12 +41,10 @@ export function Card3D({ children, className, containerClassName, intensity = 1,
       <div
         ref={ref}
         className={cn(
-          'h-full [transform-style:preserve-3d]',
-          // Promoted to its own layer only while it is actually moving. Left on permanently,
-          // will-change keeps the card in a composited layer at rest too, and everything in it
-          // is drawn into that bitmap rather than straight to the page — which is enough on its
-          // own to make small text look soft.
-          active ? 'transition-none will-change-transform' : 'transition-transform duration-500 ease-out',
+          'h-full [transform-style:preserve-3d] will-change-transform',
+          // Eased on the way out so the card settles back level instead of snapping, but not
+          // on the way in, which would make it lag behind the cursor.
+          active ? 'transition-none' : 'transition-transform duration-500 ease-out',
           className,
         )}
       >
