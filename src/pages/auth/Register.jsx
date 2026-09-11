@@ -11,12 +11,12 @@ import { Eye, EyeOff, Loader2 } from 'lucide-react'
 // would change nothing: AuthAPI.registerCustomer sets the role itself and ignores the rest of
 // the payload, so a crafted request cannot create a staff or admin account either.
 //
-// The card sits on a perspective stage and tilts toward the cursor, with its contents held at
-// different depths so they part as it turns — a card that only rotates reads as a photograph of
-// a card, and the parallax between the layers is what makes it read as an object.
-//
-// It stops tilting the moment somebody focuses a field. A form that rotates while you are typing
-// into it is a toy, and the effect has already made its point by the time anyone clicks a field.
+// The depth here comes from light and shadow, not from displacement. An earlier version pushed
+// each block forward on its own translateZ, which is the textbook way to fake parallax and the
+// reason the type went soft: perspective magnifies anything brought toward the viewer, and the
+// browser scales the already-rasterised text rather than re-rendering it at the new size. A real
+// card is not blurry because it is tilted — it is crisp, and you read its height off the shadow
+// it casts and the light along its edges. That is what this does instead.
 export default function Register(){
   const { register } = useAuth()
   const nav = useNavigate()
@@ -24,8 +24,6 @@ export default function Register(){
   const [showPassword,setShowPassword]=useState(false)
   const [busy,setBusy]=useState(false)
   const [error,setError]=useState('')
-  // Presentational only: whether somebody is filling the form in, so the tilt can hold still.
-  const [filling,setFilling]=useState(false)
   const set = (k)=>(e)=>setF(s=>({...s,[k]:e.target.value}))
 
   const submit = async (e)=>{
@@ -72,41 +70,34 @@ export default function Register(){
       </div>
 
       <div className="relative w-full max-w-md">
-        <Card3D intensity={0.85} frozen={filling} containerClassName="[perspective:1400px]">
-          {/* preserve-3d on every level between the tilting element and anything given a Z
-              offset, or the children flatten back onto the card face. */}
-          <div className="relative [transform-style:preserve-3d]">
-            {/* Contact shadow, pushed behind the card and kept soft. This is the part that sells
-                the height: the card lifts away from its own shadow as it turns. */}
+        {/* lift={1}: no magnification on hover. Two per cent is plenty to soften ten-point type,
+            and the tilt alone carries the effect. */}
+        <Card3D intensity={0.8} lift={1} containerClassName="[perspective:1500px]">
+          <div className="relative">
+            {/* Contact shadow. Sits outside the card and stays put as the card turns, which is
+                what actually reads as height. */}
             <div
-              className="pointer-events-none absolute inset-x-8 -bottom-6 h-12 rounded-[50%] bg-ink/25 blur-2xl"
-              style={{ transform:'translateZ(-70px)' }}
+              className="pointer-events-none absolute inset-x-10 -bottom-5 h-10 rounded-[50%] bg-ink/20 blur-2xl"
               aria-hidden="true"
             />
 
-            <div className="flex justify-center mb-6" style={{ transform:'translateZ(60px)' }}><Logo/></div>
+            <div className="flex justify-center mb-6"><Logo/></div>
 
-            <div className="surface p-8 shadow-[0_30px_60px_-20px_rgba(24,24,37,.28)] [transform-style:preserve-3d]">
-              {/* A hairline of light along the top edge, as a raised surface catches. */}
+            {/* Two shadows doing different jobs: a tight one just under the edge for contact, and
+                a wide soft one for the distance it stands off the page. The inset hairline is the
+                light catching the top edge of a raised surface. */}
+            <div className="relative surface p-8 shadow-[0_2px_6px_-1px_rgba(24,24,37,.12),0_36px_60px_-24px_rgba(24,24,37,.35),inset_0_1px_0_0_rgba(255,255,255,.9)]">
               <div
-                className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-white to-transparent opacity-80"
+                className="pointer-events-none absolute inset-x-10 -top-px h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent"
                 aria-hidden="true"
               />
 
-              <div className="text-center" style={{ transform:'translateZ(38px)' }}>
+              <div className="text-center">
                 <h1 className="text-xl font-extrabold tracking-tight">Create your Virktech account</h1>
                 <p className="text-[13px] text-graphite-400 mt-1">Book repairs, track status and manage orders.</p>
               </div>
 
-              <form
-                onSubmit={submit}
-                // Standard focus-within pattern: relatedTarget keeps the card still while the
-                // focus moves between fields, instead of flicking level on every tab.
-                onFocusCapture={()=>setFilling(true)}
-                onBlurCapture={(e)=>{ if(!e.currentTarget.contains(e.relatedTarget)) setFilling(false) }}
-                className="mt-6 space-y-3.5"
-                style={{ transform:'translateZ(22px)' }}
-              >
+              <form onSubmit={submit} className="mt-6 space-y-3.5">
                 <label className="block"><span className="text-[12.5px] font-semibold text-graphite-600">Full name</span>
                   <input value={f.name} onChange={set('name')} autoComplete="name" placeholder="Alex Kaur" className="input-field mt-1.5"/></label>
                 <label className="block"><span className="text-[12.5px] font-semibold text-graphite-600">Email</span>
@@ -135,23 +126,18 @@ export default function Register(){
                 )}
 
                 <button type="submit" disabled={busy}
-                  className="btn btn-brand w-full disabled:opacity-60 shadow-[0_10px_24px_-10px_rgba(79,70,229,.9)]"
-                  style={{ transform:'translateZ(14px)' }}>
+                  className="btn btn-brand w-full disabled:opacity-60 shadow-[0_12px_22px_-12px_rgba(79,70,229,.95)]">
                   {busy ? <><Loader2 size={15} className="animate-spin"/> Creating…</> : 'Create account'}
                 </button>
               </form>
 
-              <div style={{ transform:'translateZ(16px)' }}>
-                <p className="text-center text-[13.5px] text-graphite-500 mt-5">Already registered? <Link to="/login" className="text-brand font-semibold">Sign in</Link></p>
-                <p className="text-center text-[11.5px] text-graphite-400 mt-2">
-                  This form creates customer accounts. Staff and admin accounts are created by an admin.
-                </p>
-              </div>
+              <p className="text-center text-[13.5px] text-graphite-500 mt-5">Already registered? <Link to="/login" className="text-brand font-semibold">Sign in</Link></p>
+              <p className="text-center text-[11.5px] text-graphite-400 mt-2">
+                This form creates customer accounts. Staff and admin accounts are created by an admin.
+              </p>
             </div>
 
-            <p className="text-center text-[12px] text-graphite-400 mt-5" style={{ transform:'translateZ(30px)' }}>
-              <Link to="/" className="hover:text-brand">Back to Virktech</Link>
-            </p>
+            <p className="text-center text-[12px] text-graphite-400 mt-5"><Link to="/" className="hover:text-brand">Back to Virktech</Link></p>
           </div>
         </Card3D>
       </div>
