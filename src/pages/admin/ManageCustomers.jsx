@@ -341,7 +341,7 @@ function QuickBookDialog({ customer, onClose }){
   const [f,setF]=useState({ device:'Phone', brand:'', model:'', problem:'Screen replacement', branch:BRANCHES[0].id })
   const submit = async ()=>{
     if(!f.brand||!f.model){ toast.error('Enter device brand and model.'); return }
-    const rep = await RepairAPI.create({ customer:customer.name, phone:customer.phone, email:customer.email, ...f, fulfilment:'In-store' })
+    const rep = await RepairAPI.create({ customer:customer.name, phone:customer.phone, email:customer.email, ...f, fulfilment:'in_store' })
     logAction({ user:me, action:'repair.create_for_customer', entityType:'repair', entityId:rep.ref })
     toast.success(`Repair ${rep.ref} booked for ${customer.name}`)
     onClose()

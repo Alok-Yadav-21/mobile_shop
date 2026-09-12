@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth.js'
 import { RepairAPI, BranchAPI } from '@/services/api.js'
 import { BRANCHES } from '@/data/branches.js'
+import { fulfilmentLabel } from '@/constants/status.js'
 import { formatDistance } from '@/lib/geo.js'
 import { Calendar } from '@/components/ui/calendar.jsx'
 import {
@@ -17,9 +18,11 @@ const DEVICE_TYPES = [
 ]
 const PROBLEMS = ['Screen replacement','Battery replacement','Charging-port repair','Water-damage check','Software issue','Other / not sure']
 const FULFILMENT = [
-  { v:'In-store', icon:Store, d:'Drop off & collect at your chosen branch' },
-  { v:'Collection', icon:Truck, d:'We collect from your address' },
-  { v:'Mail-in', icon:Mail, d:'Post your device to us, insured' },
+  // `v` is the stored value — the DB's fulfilment_method enum. The label comes from
+  // FULFILMENT_LABELS, so what is shown and what is saved can never drift apart again.
+  { v:'in_store', icon:Store, d:'Drop off & collect at your chosen branch' },
+  { v:'collection', icon:Truck, d:'We collect from your address' },
+  { v:'delivery', icon:Mail, d:'Post your device to us, insured' },
 ]
 const STEPS = ['Device','Problem','Branch','Fulfilment','Preferred date','Your details','Review']
 
@@ -28,7 +31,7 @@ export default function BookRepair(){
   const [step,setStep]=useState(0)
   const [f,setF]=useState({
     device:'Phone', brand:'', model:'', problem:'Screen replacement', note:'',
-    pc:'', branch:'wol', fulfilment:'In-store', date:undefined,
+    pc:'', branch:'wol', fulfilment:'in_store', date:undefined,
     name:user?.name||'', phone:user?.phone||'', email:user?.email||'',
   })
   const [branchMsg,setBranchMsg]=useState('')
@@ -77,6 +80,10 @@ export default function BookRepair(){
       })
       toast.success(`Repair booked — reference ${rep.ref}`)
       nav(`/app/repairs/${rep.ref}`)
+    } catch(e){
+      // Without this a refused booking was an unhandled rejection: no message, no navigation,
+      // and a customer clicking Confirm again and again with nothing happening.
+      toast.error(e?.message || 'Could not book that repair — please try again.')
     } finally { setBusy(false) }
   }
 
@@ -159,7 +166,7 @@ export default function BookRepair(){
               {FULFILMENT.map(o=>(
                 <button key={o.v} onClick={()=>set('fulfilment')(o.v)} className={`w-full flex items-center gap-3.5 text-left px-4 py-3.5 rounded-xl border transition-colors ${f.fulfilment===o.v?'border-brand bg-brand-50':'border-graphite-200 hover:border-brand/40'}`}>
                   <o.icon size={19} className={f.fulfilment===o.v?'text-brand':'text-graphite-400'}/>
-                  <div><div className="font-semibold text-[14px]">{o.v}</div><div className="text-[12px] text-graphite-400">{o.d}</div></div>
+                  <div><div className="font-semibold text-[14px]">{fulfilmentLabel(o.v)}</div><div className="text-[12px] text-graphite-400">{o.d}</div></div>
                 </button>
               ))}
             </div>
@@ -188,7 +195,7 @@ export default function BookRepair(){
           <div>
             <h2 className="font-bold text-[15px] mb-4">Review & confirm</h2>
             <div className="divide-y divide-graphite-200 text-[13.5px]">
-              {[['Device',`${f.device} — ${f.brand} ${f.model}`],['Problem',f.problem],['Branch',branch?.area?.split('—')[0]],['Fulfilment',f.fulfilment],['Preferred date', f.date?f.date.toLocaleDateString('en-GB'):'No preference'],['Contact',`${f.name} · ${f.phone}`]].map(([k,v])=>(
+              {[['Device',`${f.device} — ${f.brand} ${f.model}`],['Problem',f.problem],['Branch',branch?.area?.split('—')[0]],['Fulfilment',fulfilmentLabel(f.fulfilment)],['Preferred date', f.date?f.date.toLocaleDateString('en-GB'):'No preference'],['Contact',`${f.name} · ${f.phone}`]].map(([k,v])=>(
                 <div key={k} className="flex justify-between py-2.5"><span className="text-graphite-400">{k}</span><span className="font-semibold text-right">{v}</span></div>
               ))}
             </div>

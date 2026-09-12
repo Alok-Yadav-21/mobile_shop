@@ -54,6 +54,29 @@ export function requiresReason(to){
   return to==='Cancelled'
 }
 
+// How a device reaches us and goes back. The stored value is the DB's fulfilment_method enum
+// (supabase/migrations/0001_init.sql); everything on screen is a label looked up from it.
+//
+// This used to be one string doing both jobs, with the booking wizard storing "In-store" and
+// "Mail-in" straight into a column that only accepts in_store/collection/delivery. Postgres
+// refused every booking, and the customer's tracking page showed the raw enum back to them.
+export const FULFILMENT_METHODS = ['in_store', 'collection', 'delivery']
+
+export const FULFILMENT_LABELS = {
+  in_store: 'In-store',
+  collection: 'Collection',
+  delivery: 'Mail-in',
+}
+
+// Also accepts the display labels the demo data was seeded with, so rows written before the
+// values were made canonical still read properly rather than showing as unknown.
+const LEGACY_FULFILMENT = { 'In-store': 'in_store', Collection: 'collection', 'Mail-in': 'delivery' }
+
+export function fulfilmentLabel(value) {
+  if (!value) return '—'
+  return FULFILMENT_LABELS[value] ?? FULFILMENT_LABELS[LEGACY_FULFILMENT[value]] ?? value
+}
+
 // Trade-in status vocabulary — mirrors the DB trade_in_status enum exactly
 // (supabase/migrations/0001_init.sql + 0003_role_crud.sql) so the mock and Supabase
 // adapters use identical values.

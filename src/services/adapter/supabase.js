@@ -797,10 +797,10 @@ export const OrderAPI = {
         unit_price: i.price, quantity: i.quantity,
       })))
       if (lineError) throw lineError
-      for (const item of payload.items) {
-        try { await ProductAPI.adjustStock(item.productId, -item.quantity, `Order ${order.reference}`) }
-        catch { /* stock drifting out of step should not lose the order itself */ }
-      }
+      // Stock is moved by a trigger on order_items (migration 0015), inside the same transaction
+      // as the sale. Doing it from here meant updating products as the customer, which RLS
+      // refuses — so the failure was swallowed and every web sale left the shelf overstated.
+      
     }
 
     const full = await this.get(order.reference)
@@ -883,9 +883,7 @@ export const OrderAPI = {
     if (!data) throw new Error('You do not have access to cancel that order.')
     const after = await this.get(ref)
     if (after.customerId) await deliver(after.customerId, orderMovedNotice(after, 'cancelled'))
-    for (const item of before.items) {
-      try { await ProductAPI.adjustStock(item.productId, item.quantity, `Cancelled order ${ref}`) } catch { /* ignore */ }
-    }
+    // Goods go back on the shelf by trigger too, for the same reason.
     return after
   },
 }
