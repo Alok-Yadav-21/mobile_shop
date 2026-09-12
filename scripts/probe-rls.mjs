@@ -14,6 +14,10 @@ import { createClient } from '@supabase/supabase-js'
 
 const url = process.env.SUPABASE_URL
 const anonKey = process.env.SUPABASE_ANON_KEY
+// Optional, and only ever used to plant data a check then tries to read back. Without it the
+// pay-rate checks would set up nothing and pass against an empty column, which is worse than not
+// running them — so they are skipped loudly instead.
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 if (!url || !anonKey) {
   console.error('Set SUPABASE_URL and SUPABASE_ANON_KEY (npx supabase status -o env).')
   process.exit(1)
@@ -120,11 +124,38 @@ for (const [who, client] of [['customer', customer], ['staff', staff]]) {
   check((data ?? []).length === 0, `${who} reads what stock cost the business`, `saw ${(data ?? []).length}`)
 }
 
-// A rate on somebody else's account, so "saw 1" means their own and not an empty table.
-await admin.from('profiles').update({ hourly_rate: 15.5 }).eq('id', ids.tech)
-const { data: rates } = await staff.from('visible_pay_rates').select('id')
-check((rates ?? []).length <= 1 && !(rates ?? []).some((r) => r.id === ids.tech),
-  'staff read a colleague’s pay rate', `saw ${(rates ?? []).length}`)
+// A rate on somebody else's account, so the checks below mean something rather than passing
+// against an empty column. It has to be planted with the service role: since migration 0016 no
+// signed-in user can write hourly_rate at all, admins included.
+if (serviceKey) {
+  const service = createClient(url, serviceKey, { auth: { persistSession: false } })
+  await service.from('profiles').update({ hourly_rate: 15.5 }).eq('id', ids.tech)
+
+  const { data: planted } = await service.from('profiles').select('hourly_rate').eq('id', ids.tech).single()
+  check(Number(planted?.hourly_rate) === 15.5, 'a colleague has a rate to leak in the first place')
+
+  // The table must not hand the column out, to anyone. RLS cannot do this — it picks rows, not
+  // columns — so it is a column privilege, and that applies to admins too.
+  const direct = await staff.from('profiles').select('email, hourly_rate')
+  check(!!direct.error, 'staff read hourly_rate straight off the profiles table',
+    direct.error ? direct.error.message.slice(0, 48) : 'ALLOWED: ' + JSON.stringify(direct.data))
+
+  const wildcard = await staff.from('profiles').select('*')
+  check(!!wildcard.error, 'staff select * from profiles', wildcard.error ? 'refused' : 'ALLOWED')
+
+  const adminDirect = await admin.from('profiles').select('hourly_rate')
+  check(!!adminDirect.error, 'even an admin reads the raw column')
+
+  const { data: rates } = await staff.from('visible_pay_rates').select('id')
+  check((rates ?? []).length <= 1 && !(rates ?? []).some((r) => r.id === ids.tech),
+    'staff read a colleague’s pay rate through the view', `saw ${(rates ?? []).length}`)
+
+  const { data: adminRates } = await admin.from('visible_pay_rates').select('id, hourly_rate')
+  check((adminRates ?? []).some((r) => r.id === ids.tech && Number(r.hourly_rate) === 15.5),
+    'an admin can still see a rate, through the view')
+} else {
+  console.log('  skip  pay-rate checks (set SUPABASE_SERVICE_ROLE_KEY to run them)')
+}
 
 const { data: audit } = await customer.from('audit_logs').select('id')
 check((audit ?? []).length === 0, 'customer reads the audit log', `saw ${(audit ?? []).length}`)
