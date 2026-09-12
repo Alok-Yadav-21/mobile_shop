@@ -55,13 +55,50 @@ Deno.serve(async (req) => {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } })
   const { data: caller } = await admin.from('profiles')
     .select('id, role, super_admin, archived, status').eq('id', user.id).maybeSingle()
-  if (!caller || caller.role !== 'admin' || caller.archived || caller.status !== 'active') {
+  if (!caller || caller.archived || caller.status !== 'active') {
     return json({ error: 'Your account does not have access to that.' }, 403)
   }
 
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return json({ error: 'Malformed request.' }, 400) }
   const action = String(body.action ?? '')
+
+  // Setting your own password is the one thing here that is not an admin action — it is what a
+  // newly issued staff account does on its first sign-in. It is handled before the admin gate
+  // below, and gated on its own rule instead.
+  //
+  // It has to live in this function rather than in the adapter or a policy: the password is held
+  // by GoTrue, not in a table, so no RLS rule can stand in front of it. Enforcing it only in the
+  // UI left any staff member able to change their own password whenever they liked.
+  if (action === 'change-own-password') {
+    const password = String(body.password ?? '')
+    const pwProblem = passwordProblem(password)
+    if (pwProblem) return json({ error: pwProblem }, 400)
+
+    const { data: self } = await admin.from('profiles')
+      .select('role, must_change_password, password_change_allowed').eq('id', user.id).single()
+
+    // Customers and admins own their own password outright. A staff password is issued by an
+    // admin, so staff may only replace it when one has unlocked it — either by granting a change
+    // or by issuing a password that must be replaced on first use.
+    if (self?.role === 'staff' && !self.must_change_password && !self.password_change_allowed) {
+      return json({ error: 'An admin must unlock password changes for your account before you can set a new one.' }, 403)
+    }
+
+    const { error } = await admin.auth.admin.updateUserById(user.id, { password })
+    if (error) return json({ error: error.message }, 400)
+
+    // The change is no longer owed, and the grant that permitted it has been spent.
+    await admin.from('profiles')
+      .update({ must_change_password: false, password_change_allowed: false })
+      .eq('id', user.id)
+    return json({ changed: true })
+  }
+
+  // Everything past here creates or alters somebody else's account, and is admin-only.
+  if (caller.role !== 'admin') {
+    return json({ error: 'Your account does not have access to that.' }, 403)
+  }
 
   // Only a super admin may create or alter another admin — the same rule the database enforces
   // on the role column (migration 0005).

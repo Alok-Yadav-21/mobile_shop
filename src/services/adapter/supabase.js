@@ -1666,11 +1666,13 @@ export const AuthAPI = {
 
   async changeOwnPassword({ newPassword } = {}) {
     assertConnected()
-    const { error } = await supabase.auth.updateUser({ password: newPassword })
-    if (error) throw error
-    await supabase.from('profiles').update({ must_change_password: false, password_change_allowed: false })
-      .eq('id', (await supabase.auth.getUser()).data.user?.id)
-    return { changed: true }
+    // Through the edge function, not supabase.auth.updateUser directly. A staff password is
+    // issued by an admin and may only be replaced when one has unlocked it — and that rule
+    // cannot live in a policy, because the password is held by GoTrue rather than in a table.
+    // Calling Auth from here enforced nothing, so any staff member could change their own
+    // password whenever they liked by calling the API. The function checks the grant, performs
+    // the change, and spends the grant.
+    return callStaffAccounts({ action: 'change-own-password', password: newPassword })
   },
 
   // Setting somebody else's password needs the Admin API and the service role key, which must
