@@ -15,6 +15,7 @@ import {
 } from '@/lib/notices.js'
 import { locatePostcode, branchesByDistance } from '@/lib/geo.js'
 import { productImage } from '@/data/productImages.js'
+import { serviceIcon, serviceIconName } from '@/lib/serviceIcons.js'
 import { applyRedemption, discountForPoints, creditValue, balanceFrom } from '@/lib/loyalty.js'
 
 // The DB's repair_status enum (supabase/migrations/0001_init.sql) and the app's REPAIR_FLOW
@@ -566,12 +567,15 @@ export const ServiceAPI = {
     if (!filters.includeInactive) q = q.eq('active', true).eq('archived', false)
     const { data, error } = await q
     if (error) throw error
-    return data.map((s) => ({ id: s.id, icon: s.icon, title: s.title, desc: s.description, active: s.active, archived: !!s.archived }))
+    // The column holds a name; the page draws a component. Resolved here so both adapters hand
+    // back the same shape (see src/lib/serviceIcons.js).
+    return data.map((s) => ({ id: s.id, icon: serviceIcon(s.icon), title: s.title, desc: s.description, active: s.active, archived: !!s.archived }))
   },
   async create(data) {
     assertConnected()
     const { data: row, error } = await supabase.from('services').insert({
-      title: data.title, description: data.desc, icon: data.icon, device_category: data.deviceCategory ?? 'General',
+      title: data.title, description: data.desc, icon: serviceIconName(data.icon),
+      device_category: data.deviceCategory ?? 'General',
       base_price: data.basePrice ?? null, active: false, archived: false,
     }).select().single()
     if (error) throw error
@@ -1456,7 +1460,21 @@ export const AuditAPI = {
     if (filters.actorId) q = q.eq('actor_id', filters.actorId)
     const { data, error } = await q
     if (error) throw error
-    return data
+    // Mapped rather than handed back raw. The page reads entityType to build its filter list, and
+    // raw rows only carry entity_type — so the dropdown listed one blank option, and React warned
+    // about the duplicate undefined key behind it.
+    return data.map((l) => ({
+      id: l.id,
+      actorId: l.actor_id ?? null,
+      actorRole: l.actor_role ?? null,
+      action: l.action,
+      entityType: l.entity_type,
+      entityId: l.entity_id,
+      before: l.before ?? null,
+      after: l.after ?? null,
+      reason: l.reason ?? null,
+      at: new Date(l.created_at).getTime(),
+    }))
   },
 }
 
