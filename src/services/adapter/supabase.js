@@ -604,6 +604,16 @@ export const ServiceAPI = {
   },
 }
 
+function mapBranchRow(b) {
+  return {
+    id: b.id, area: b.area, local: b.local_name, addr: b.address, pc: b.postcode,
+    phone: b.phone ?? null,
+    lat: b.lat == null ? null : Number(b.lat),
+    lng: b.lng == null ? null : Number(b.lng),
+    active: b.active, archived: !!b.archived,
+  }
+}
+
 export const BranchAPI = {
   async list(filters = {}) {
     assertConnected()
@@ -612,13 +622,13 @@ export const BranchAPI = {
     if (!filters.includeInactive) q = q.eq('active', true).eq('archived', false)
     const { data, error } = await q
     if (error) throw error
-    return data.map((b) => ({ id: b.id, area: b.area, local: b.local_name, addr: b.address, pc: b.postcode, lat: Number(b.lat), lng: Number(b.lng), active: b.active, archived: !!b.archived }))
+    return data.map(mapBranchRow)
   },
   async get(id) {
     assertConnected()
     const { data, error } = await supabase.from('branches').select('*').eq('id', id).single()
     if (error) throw error
-    return { id: data.id, area: data.area, local: data.local_name, addr: data.address, pc: data.postcode, lat: Number(data.lat), lng: Number(data.lng), active: data.active, archived: !!data.archived }
+    return mapBranchRow(data)
   },
   // Same ranking as ./mock.js — real distance, nearest first, each with its `km`. Ranked in
   // JavaScript rather than SQL because the branch list is small and the alternative is a
@@ -642,16 +652,26 @@ export const BranchAPI = {
       active: false, archived: false,
     }).select().single()
     if (error) throw error
-    return { id: row.id, area: row.area, local: row.local_name, addr: row.address, pc: row.postcode, active: row.active, archived: !!row.archived }
+    return mapBranchRow(row)
   },
   async update(id, patch) {
     assertConnected()
+    // Every field the admin's branch form can edit. It used to carry only active/archived, so
+    // renaming a branch or correcting its address updated nothing at all and reported success.
     const dbPatch = {}
+    if (patch.area !== undefined) dbPatch.area = patch.area
+    if (patch.local !== undefined) dbPatch.local_name = patch.local
+    if (patch.addr !== undefined) dbPatch.address = patch.addr
+    if (patch.pc !== undefined) dbPatch.postcode = patch.pc
+    if (patch.phone !== undefined) dbPatch.phone = patch.phone || null
+    if (patch.lat !== undefined) dbPatch.lat = patch.lat
+    if (patch.lng !== undefined) dbPatch.lng = patch.lng
     if (patch.active !== undefined) dbPatch.active = patch.active
     if (patch.archived !== undefined) dbPatch.archived = patch.archived
+    if (Object.keys(dbPatch).length === 0) return this.get(id)
     const { data, error } = await supabase.from('branches').update(dbPatch).eq('id', id).select().single()
     if (error) throw error
-    return data
+    return mapBranchRow(data)
   },
   async setActive(id, active) { return this.update(id, { active }) },
   async archive(id) { return this.update(id, { archived: true, active: false }) },
