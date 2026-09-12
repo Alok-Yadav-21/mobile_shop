@@ -94,12 +94,19 @@ check(!!(await rpc(adminUser, 'loyalty_adjust', { p_customer: ids.customer, p_de
   'an admin adjusts with no reason')
 check(!!(await rpc(adminUser, 'loyalty_adjust', { p_customer: ids.customer, p_delta: -9999, p_reason: 'clawback' })).error,
   'an adjustment that would go below zero')
+// Measured as a change, not as an absolute. Asserting the balance equals 100 assumed a freshly
+// reset database, so the check failed for the wrong reason the moment anything else had touched
+// this account — which is exactly when a real fault is easiest to miss.
+const beforeAdjust = await balance()
 check(!(await rpc(adminUser, 'loyalty_adjust', { p_customer: ids.customer, p_delta: 45, p_reason: 'Goodwill' })).error,
   'an admin adjusts with a reason')
-check(await balance() === 100, 'and the balance follows', `balance ${await balance()}`)
+check(await balance() === beforeAdjust + 45, 'and the balance moves by exactly that much',
+  `${beforeAdjust} → ${await balance()}`)
 
 console.log('\n== spending ==')
 const orderRef = `ORD-LOY-${Date.now()}`
+// Needs at least 40 points on the account for the cap to be the binding limit rather than the
+// balance; the adjustment above guarantees it.
 const spend = await rpc(customer, 'loyalty_redeem', {
   p_customer: ids.customer, p_points: 999, p_total: 40, p_source_type: 'order', p_source_ref: orderRef,
 })
