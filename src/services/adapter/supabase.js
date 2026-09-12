@@ -91,6 +91,15 @@ function assertConnected() {
   if (!supabase) throw new Error('Supabase adapter used without VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY set — see .env.example.')
 }
 
+// Every column of profiles except hourly_rate, which authenticated has no privilege to select
+// (migration 0016) — a colleague's pay is not theirs to read, and `select('*')` would now be
+// refused outright. Rates come from the visible_pay_rates view instead.
+const PROFILE_COLUMNS = [
+  'id', 'full_name', 'email', 'phone', 'role', 'branch_id', 'created_at', 'status',
+  'super_admin', 'last_active_at', 'archived', 'job_title', 'specialisations',
+  'username', 'must_change_password', 'password_change_allowed',
+].join(', ')
+
 async function currentUser() {
   const { data } = await supabase.auth.getUser()
   return data?.user ?? null
@@ -104,7 +113,7 @@ async function currentProfile() {
   const user = await currentUser()
   if (!user) { profileCache = { id: null, profile: null }; return null }
   if (profileCache.id === user.id) return profileCache.profile
-  const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle()
+  const { data } = await supabase.from('profiles').select(PROFILE_COLUMNS).eq('id', user.id).maybeSingle()
   const profile = data ? mapProfileRow(data) : null
   profileCache = { id: user.id, profile }
   return profile
@@ -1048,13 +1057,23 @@ function mapProfileRow(u) {
 export const UserAPI = {
   async list() {
     assertConnected()
-    const { data, error } = await supabase.from('profiles').select('*')
+    const { data, error } = await supabase.from('profiles').select(PROFILE_COLUMNS)
     if (error) throw error
-    return data.map(mapProfileRow)
+    const rows = data.map(mapProfileRow)
+
+    // Pay rates come from visible_pay_rates, never from the profiles table, which no longer
+    // hands the column out at all (migration 0016). The view answers with everyone's rate for an
+    // admin and only your own for anybody else — and only an admin is given them here, matching
+    // what redactUser does on the mock side: a rate is not the holder's to read either.
+    const profile = await currentProfile()
+    if (profile?.role !== 'admin') return rows
+    const { data: rates } = await supabase.from('visible_pay_rates').select('id, hourly_rate')
+    const byId = new Map((rates ?? []).map((r) => [r.id, r.hourly_rate]))
+    return rows.map((u) => (byId.get(u.id) == null ? u : { ...u, hourlyRate: Number(byId.get(u.id)) }))
   },
   async get(id) {
     assertConnected()
-    const { data, error } = await supabase.from('profiles').select('*').eq('id', id).single()
+    const { data, error } = await supabase.from('profiles').select(PROFILE_COLUMNS).eq('id', id).single()
     if (error) throw error
     return mapProfileRow(data)
   },
@@ -1084,7 +1103,7 @@ export const UserAPI = {
     if (patch.jobTitle !== undefined) dbPatch.job_title = patch.jobTitle
     if (patch.specialisations !== undefined) dbPatch.specialisations = patch.specialisations
     if (patch.lastActiveAt !== undefined) dbPatch.last_active_at = new Date(patch.lastActiveAt).toISOString()
-    const { data, error } = await supabase.from('profiles').update(dbPatch).eq('id', id).select().single()
+    const { data, error } = await supabase.from('profiles').update(dbPatch).eq('id', id).select(PROFILE_COLUMNS).single()
     if (error) throw error
     return mapProfileRow(data)
   },
@@ -1582,7 +1601,7 @@ export const AuthAPI = {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw new Error('Those sign-in details are not recognised.')
 
-    const { data: profile } = await supabase.from('profiles').select('*').eq('id', data.user.id).single()
+    const { data: profile } = await supabase.from('profiles').select(PROFILE_COLUMNS).eq('id', data.user.id).single()
     if (profile?.archived || profile?.status === 'inactive') {
       await supabase.auth.signOut()
       throw new Error('That account is no longer active. Please speak to your branch manager.')
