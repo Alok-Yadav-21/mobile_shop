@@ -27,11 +27,12 @@ if (!url || !serviceKey) {
 // not seed accounts: staff accounts are created by an admin from the Staff page, which issues a
 // password the person must change, and customers register themselves.
 //
-// The branch technicians below are the same people, at the same branches, with the same
-// usernames and rates as src/data/users.js — so the app behaves the same whichever backend it
-// is pointed at. They matter for more than sign-in: a repair can only be assigned to somebody
-// who works at the branch holding the device (src/lib/staff.js), and with only the two Woolwich
-// accounts seeded, every repair booked anywhere else had an empty "Assign technician" list.
+// The branch staff below are the same people, at the same branches, with the same usernames and
+// rates as src/data/users.js — so the app behaves the same whichever backend it is pointed at.
+// They matter for more than sign-in: a repair can only be assigned to somebody who works at the
+// branch holding the device (src/lib/staff.js), and with only the two Woolwich accounts seeded,
+// every repair booked anywhere else had an empty "Assign technician" list. All eight branches are
+// covered, so there is no branch a customer can book at and nobody can be given the job.
 const ACCOUNTS = [
   { email: 'customer@demo.com',    password: 'demo-customer-1', name: 'Alex Kaur',     role: 'customer', branch: null,  phone: '07700 900123' },
   { email: 'staff@demo.com',       password: 'demo-staff-1',    name: 'Sam Patel',     role: 'staff',    branch: 'wol', phone: null, username: 'sam.patel',     jobTitle: 'Senior technician', hourlyRate: 16.5 },
@@ -42,6 +43,10 @@ const ACCOUNTS = [
   { email: 'jason@virktech.co.uk', password: 'staff1234', name: 'Jason Clarke', role: 'staff', branch: 'blv', phone: '07700 900203', username: 'jason.clarke', jobTitle: 'Technician',        hourlyRate: 14 },
   { email: 'ravi@virktech.co.uk',  password: 'staff1234', name: 'Ravi Chauhan', role: 'staff', branch: 'orp', phone: '07700 900205', username: 'ravi.chauhan', jobTitle: 'Technician',        hourlyRate: 13.5 },
   { email: 'ellie@virktech.co.uk', password: 'staff1234', name: 'Ellie Brooks', role: 'staff', branch: 'nsa', phone: '07700 900208', username: 'ellie.brooks', jobTitle: 'Sales assistant',   hourlyRate: 12.5 },
+  { email: 'leah@virktech.co.uk',  password: 'staff1234', name: 'Leah Morgan',   role: 'staff', branch: 'nel', phone: '07700 900204', username: 'leah.morgan',   jobTitle: 'Technician',        hourlyRate: 14 },
+  { email: 'nadia@virktech.co.uk', password: 'staff1234', name: 'Nadia Hassan',  role: 'staff', branch: 'wbs', phone: '07700 900206', username: 'nadia.hassan',  jobTitle: 'Sales assistant',   hourlyRate: 12.5 },
+  { email: 'dan@virktech.co.uk',   password: 'staff1234', name: 'Dan Whitfield', role: 'staff', branch: 'whr', phone: '07700 900207', username: 'dan.whitfield', jobTitle: 'Technician',        hourlyRate: 13.5 },
+  { email: 'marcus@virktech.co.uk',password: 'staff1234', name: 'Marcus Reid',   role: 'staff', branch: 'blv', phone: '07700 900209', username: 'marcus.reid',   jobTitle: 'Sales assistant',   hourlyRate: 12 },
 ]
 
 const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } })
