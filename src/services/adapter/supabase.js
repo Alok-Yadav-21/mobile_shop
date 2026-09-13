@@ -1698,22 +1698,28 @@ export const AuthAPI = {
     await supabase.auth.signOut()
   },
 
-  // Being told when the session ends underneath an open page.
+  // Being told who the session actually belongs to, whenever that changes.
   //
   // Nothing was watching it. The app decided you were signed in from its own record in local
   // storage, written once at sign-in, and never checked it against the session the requests
-  // actually travel with — so when Supabase dropped that session (a refresh token that failed to
-  // rotate, a sign-out in another tab) the screen carried on showing the customer's name and the
-  // next thing they saved went out anonymous. What came back was Postgres refusing an insert
-  // that belonged to nobody.
+  // actually travel with. Those two can come apart in both directions, and both were happening:
   //
-  // Any event with no session means there is nobody signed in any more, whatever caused it.
-  onSessionEnded(handler) {
+  //   - The session goes away (a refresh token that failed to rotate, a sign-out elsewhere) and
+  //     the screen carries on as before until something is written, which is then refused as
+  //     belonging to nobody.
+  //   - The session becomes somebody ELSE. There is one Supabase session per browser, kept in
+  //     local storage and shared by every tab, so signing into a second account anywhere replaces
+  //     it everywhere. The other tab kept its own name on screen while every request it sent went
+  //     out as the new account — a customer's workspace reading a technician's notifications,
+  //     with a technician's access behind it.
+  //
+  // Hence the id rather than a bare "it ended": only the caller knows who it thought was here.
+  onSessionChanged(handler) {
     if (!supabase) return () => {}
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) return
+      // Whoever the next call resolves, it is not necessarily who the last one did.
       profileCache = { id: null, profile: null }
-      handler()
+      handler(session?.user?.id ?? null)
     })
     return () => data?.subscription?.unsubscribe()
   },
