@@ -32,10 +32,16 @@ export function AuthProvider({ children }){
     try{ return localStorage.getItem(MUST_CHANGE)==='1' }catch{ return false }
   })
 
+  // Who this tab believes is signed in, kept where a listener can read it without waiting for a
+  // render. null means nobody — either signed out, or a sign-in still in flight, and in both
+  // cases there is nothing here to protect.
+  const signedInAs = useRef(user?.id ?? null)
+
   // Single place a signed-in user is adopted, so the React tree, the ambient session and
   // storage can never disagree about who is signed in.
   const adopt = useCallback((u, must=false)=>{
     dropOnScreenNotices()
+    signedInAs.current = u?.id ?? null
     setUser(u); setSession(u); setMustChangePassword(must)
     try{
       localStorage.setItem(SESSION, JSON.stringify(u))
@@ -47,6 +53,10 @@ export function AuthProvider({ children }){
   // into React state. There is no role argument — which area someone lands in is decided by
   // the account they signed into, never by what the sign-in form asked for.
   const login = useCallback(async (identifier, password)=>{
+    // Signing in replaces the browser's session, which the listener below sees before adopt runs.
+    // Until it does, this tab has no settled opinion about who is here — saying so keeps the
+    // listener from reading our own sign-in as somebody else arriving.
+    signedInAs.current = null
     const { user:u, mustChangePassword:must } = await AuthAPI.signIn({ identifier, password })
     adopt(u, must)
     UserAPI.touchActivity?.(u.id)?.catch?.(()=>{})
@@ -59,26 +69,33 @@ export function AuthProvider({ children }){
   // Public sign-up. AuthAPI.registerCustomer sets the role itself, so this cannot create a
   // staff or admin account no matter what the form sends.
   const register = useCallback(async (data)=>{
+    signedInAs.current = null
     const u = await AuthAPI.registerCustomer(data)
     adopt(u, false)
     return u
   },[adopt])
-
-  // Whether there was anybody to lose. Nothing to announce if the tab was never signed in.
-  const hadUser = useRef(!!user)
-  useEffect(()=>{ hadUser.current = !!user },[user])
 
   // Forgetting who was signed in, here and in the ambient session the data layer authorises
   // against. Split out from logout because the app has to do exactly this when the backend
   // session ends without anyone pressing anything.
   const forget = useCallback(()=>{
     dropOnScreenNotices()
-    // Set here rather than in the effect below, which does not run until after the render: a
-    // deliberate sign-out reaches the listener first and would otherwise announce itself as a
-    // session that ended on its own.
-    hadUser.current = false
+    // Set here rather than in an effect, which would not run until after the render: a deliberate
+    // sign-out reaches the listener below first and would otherwise announce itself as somebody
+    // else taking the session over.
+    const wasHere = signedInAs.current
+    signedInAs.current = null
     setUser(null); clearSession(); setMustChangePassword(false)
-    try{ localStorage.removeItem(SESSION); localStorage.removeItem(MUST_CHANGE) }catch{ /* ignore */ }
+    try{
+      // Only if the shared record still describes the account this tab was showing. When a tab is
+      // signed out because another one signed in, that other tab has already written its own
+      // account here — and clearing it would log out the tab that is legitimately signed in the
+      // moment it next reloaded.
+      const stored = JSON.parse(localStorage.getItem(SESSION) || 'null')
+      if(!stored || !wasHere || stored.id === wasHere){
+        localStorage.removeItem(SESSION); localStorage.removeItem(MUST_CHANGE)
+      }
+    }catch{ /* ignore */ }
   },[])
 
   const logout = useCallback(()=>{
@@ -90,15 +107,24 @@ export function AuthProvider({ children }){
     AuthAPI.signOut?.()?.catch?.(()=>{})
   },[forget])
 
-  // The session can end without anybody pressing sign out: a refresh token that failed to
-  // rotate, or a sign-out in another tab. Until this listener existed nothing noticed — the app
-  // went on showing the signed-in name, and the next thing the person saved was sent with no
-  // session at all, so the database refused a record that belonged to nobody and they were shown
-  // its refusal. Being asked to sign in again is the honest version of that.
-  useEffect(()=>AuthAPI.onSessionEnded?.(()=>{
-    if(!hadUser.current) return
+  // Keeping this tab honest about who it is signed in as.
+  //
+  // There is one backend session per browser, shared by every tab, and the app's own record of
+  // who is here is separate from it. When they disagree the screen lies: it keeps the old name
+  // and role on display while every request it sends is authorised as whoever the session now
+  // belongs to. That is how a customer's workspace came to be showing a technician's
+  // notifications — the bell was reading exactly what it was entitled to read, as the technician.
+  //
+  // Signing this tab out is the only honest answer. Adopting the new account silently would move
+  // somebody between roles without asking, and carrying on as the old one is the lie itself.
+  useEffect(()=>AuthAPI.onSessionChanged?.((backendId)=>{
+    const here = signedInAs.current
+    if(here === null) return            // nobody to protect, or our own sign-in still in flight
+    if(backendId === here) return       // same person — a token refresh, not a change
     forget()
-    toast.error('Your session has ended — please sign in again.')
+    toast.error(backendId
+      ? 'Signed out here — another account signed in on this browser.'
+      : 'Your session has ended — please sign in again.')
   }),[forget])
 
   const clearMustChangePassword = useCallback(()=>{

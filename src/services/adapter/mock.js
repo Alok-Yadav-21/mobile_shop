@@ -1716,7 +1716,7 @@ export const AuthAPI = {
   // whole of it, and AuthContext has already cleared that. Present so both adapters answer the
   // same calls, and so nothing has to ask which one is behind it.
   async signOut() {},
-  onSessionEnded() { return () => {} },
+  onSessionChanged() { return () => {} },
 
   // Changing your own password. The current password is required even for an admin, so walking
   // up to an unattended screen is not enough to lock the owner out of their own account.
