@@ -10,6 +10,16 @@ const SESSION = 'vt_session'
 // it. Keeping it in storage means refreshing the page cannot skip the forced password change.
 const MUST_CHANGE = 'vt_must_change_password'
 
+// Toasts are raised against the screen, not against the account, and the Toaster is mounted
+// above the router — so one outlives a change of user. An admin assigning a job is told "SPR-4805
+// assigned to Priya Shah — they have been notified", and that message was still standing when the
+// next person signed in. Told to a customer, it names a technician and says the shop has been
+// spoken to: the workshop's business, not theirs.
+//
+// Stored notifications never had this problem — they carry a profile_id and the database only
+// returns your own. This is the one channel that was addressed to nobody.
+function dropOnScreenNotices() { toast.dismiss() }
+
 export function AuthProvider({ children }){
   // The data layer authorises against the same session (src/services/session.js). Every path
   // that changes who is signed in must update both, or the adapter would keep scoping reads to
@@ -25,6 +35,7 @@ export function AuthProvider({ children }){
   // Single place a signed-in user is adopted, so the React tree, the ambient session and
   // storage can never disagree about who is signed in.
   const adopt = useCallback((u, must=false)=>{
+    dropOnScreenNotices()
     setUser(u); setSession(u); setMustChangePassword(must)
     try{
       localStorage.setItem(SESSION, JSON.stringify(u))
@@ -61,6 +72,7 @@ export function AuthProvider({ children }){
   // against. Split out from logout because the app has to do exactly this when the backend
   // session ends without anyone pressing anything.
   const forget = useCallback(()=>{
+    dropOnScreenNotices()
     // Set here rather than in the effect below, which does not run until after the render: a
     // deliberate sign-out reaches the listener first and would otherwise announce itself as a
     // session that ended on its own.

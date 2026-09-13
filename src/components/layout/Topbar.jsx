@@ -22,10 +22,17 @@ export function Topbar({ title, nav, navTitle }) {
   // The data layer scopes this to the signed-in account, so the bell shows the caller's own
   // notifications and nobody else's. These are the same records a repair status change
   // raises, which is what makes staff activity visible to the customer here.
-  const { data: notifications = [], refetch } = useAsync(
-    () => NotificationAPI.list().catch(() => []),
+  //
+  // Whose they are is carried with them, because the fetch is not instant and useAsync keeps the
+  // last answer on screen while the next one is in flight — deliberately, so a live refresh does
+  // not blank the page. Across a change of account that same behaviour shows the outgoing user's
+  // bell to the incoming one, and a workshop notice ("SPR-4805 assigned to you") is not a
+  // customer's to read. An answer that belongs to somebody else is no answer at all.
+  const { data, refetch } = useAsync(
+    async () => ({ owner: user?.id ?? null, items: await NotificationAPI.list().catch(() => []) }),
     [user?.id],
   )
+  const notifications = data?.owner === (user?.id ?? null) ? data.items : []
   const unread = notifications.filter((n) => !n.read)
 
   // Something arriving while you are looking at another screen is the whole point of the bell,
