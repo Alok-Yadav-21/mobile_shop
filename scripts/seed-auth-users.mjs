@@ -26,11 +26,22 @@ if (!url || !serviceKey) {
 // Demo passwords for a local stack that is thrown away on every reset. A real deployment does
 // not seed accounts: staff accounts are created by an admin from the Staff page, which issues a
 // password the person must change, and customers register themselves.
+//
+// The branch technicians below are the same people, at the same branches, with the same
+// usernames and rates as src/data/users.js — so the app behaves the same whichever backend it
+// is pointed at. They matter for more than sign-in: a repair can only be assigned to somebody
+// who works at the branch holding the device (src/lib/staff.js), and with only the two Woolwich
+// accounts seeded, every repair booked anywhere else had an empty "Assign technician" list.
 const ACCOUNTS = [
-  { email: 'customer@demo.com', password: 'demo-customer-1', name: 'Alex Kaur',     role: 'customer', branch: null,  phone: '07700 900123' },
-  { email: 'staff@demo.com',    password: 'demo-staff-1',    name: 'Sam Patel',     role: 'staff',    branch: 'wol', phone: null },
-  { email: 'tech@demo.com',     password: 'demo-tech-1',     name: 'Priya Shah',    role: 'staff',    branch: 'wol', phone: null },
-  { email: 'admin@demo.com',    password: 'demo-admin-1',    name: 'Central Admin', role: 'admin',    branch: null,  phone: null, superAdmin: true },
+  { email: 'customer@demo.com',    password: 'demo-customer-1', name: 'Alex Kaur',     role: 'customer', branch: null,  phone: '07700 900123' },
+  { email: 'staff@demo.com',       password: 'demo-staff-1',    name: 'Sam Patel',     role: 'staff',    branch: 'wol', phone: null, username: 'sam.patel',     jobTitle: 'Senior technician', hourlyRate: 16.5 },
+  { email: 'tech@demo.com',        password: 'demo-tech-1',     name: 'Priya Shah',    role: 'staff',    branch: 'wol', phone: '07700 900201', username: 'priya.shah', jobTitle: 'Technician',   hourlyRate: 14.5 },
+  { email: 'admin@demo.com',       password: 'demo-admin-1',    name: 'Central Admin', role: 'admin',    branch: null,  phone: null, username: 'admin', superAdmin: true },
+
+  { email: 'aman@virktech.co.uk',  password: 'staff1234', name: 'Aman Singh',   role: 'staff', branch: 'sid', phone: '07700 900202', username: 'aman.singh',   jobTitle: 'Senior technician', hourlyRate: 16 },
+  { email: 'jason@virktech.co.uk', password: 'staff1234', name: 'Jason Clarke', role: 'staff', branch: 'blv', phone: '07700 900203', username: 'jason.clarke', jobTitle: 'Technician',        hourlyRate: 14 },
+  { email: 'ravi@virktech.co.uk',  password: 'staff1234', name: 'Ravi Chauhan', role: 'staff', branch: 'orp', phone: '07700 900205', username: 'ravi.chauhan', jobTitle: 'Technician',        hourlyRate: 13.5 },
+  { email: 'ellie@virktech.co.uk', password: 'staff1234', name: 'Ellie Brooks', role: 'staff', branch: 'nsa', phone: '07700 900208', username: 'ellie.brooks', jobTitle: 'Sales assistant',   hourlyRate: 12.5 },
 ]
 
 const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } })
@@ -65,6 +76,17 @@ for (const account of ACCOUNTS) {
     role: account.role,
     branch_id: account.branch,
     super_admin: !!account.superAdmin,
+    username: account.username ?? null,
+    job_title: account.jobTitle ?? null,
+    // Written with the service role, which is the only way it can be: since migration 0016 the
+    // column is not grantable to a signed-in user at all, admins included.
+    hourly_rate: account.hourlyRate ?? null,
+    status: 'active',
+    archived: false,
+    // A demo account is handed out with its password already known, so there is nothing owed
+    // and nothing to unlock — leaving these true would bounce every sign-in to /set-password.
+    must_change_password: false,
+    password_change_allowed: false,
   }, { onConflict: 'id' })
   if (profileError) { console.error(`  FAILED   profile for ${account.email}: ${profileError.message}`); process.exitCode = 1 }
 }
