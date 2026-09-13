@@ -114,10 +114,29 @@ async function currentProfile() {
   const user = await currentUser()
   if (!user) { profileCache = { id: null, profile: null }; return null }
   if (profileCache.id === user.id) return profileCache.profile
-  const { data } = await supabase.from('profiles').select(PROFILE_COLUMNS).eq('id', user.id).maybeSingle()
+  const { data, error } = await supabase.from('profiles').select(PROFILE_COLUMNS).eq('id', user.id).maybeSingle()
+  // A failed read is not the same as "this account has no profile", and the difference matters:
+  // everything below decides what to ask for from the role it finds here, so a swallowed error
+  // turns into a caller with no role and writes that belong to nobody.
+  if (error && import.meta.env.DEV) console.warn('could not read own profile:', error.message)
   const profile = data ? mapProfileRow(data) : null
   profileCache = { id: user.id, profile }
   return profile
+}
+
+// A write that has to belong to somebody.
+//
+// Without this the request still goes out — as `anon`, because supabase-js simply omits the
+// Authorization header when it has no session — and Postgres answers in its own words: "new row
+// violates row-level security policy for table repairs". That is the right refusal and a useless
+// message: it reads as a broken site rather than as a session that quietly ended, which is what
+// it actually is. The session can end underneath a page that is still open (a refresh token that
+// failed to rotate, a sign-out in another tab), and the screen goes on showing who used to be
+// signed in until something is written.
+async function requireSession() {
+  const user = await currentUser()
+  if (!user) throw new Error('Your session has ended. Please sign in again.')
+  return user
 }
 
 // Delivering what src/lib/notices.js composed. The wording is shared with the mock adapter so
@@ -254,6 +273,7 @@ export const RepairAPI = {
   },
   async create(data) {
     assertConnected()
+    await requireSession()
     const profile = await currentProfile()
     // Without this the insert is refused outright: the policy requires a repair to belong to the
     // person booking it, and nothing was setting the owner — so a customer could not book at all.
@@ -810,6 +830,7 @@ export const OrderAPI = {
   },
   async create(payload) {
     assertConnected()
+    await requireSession()
     const profile = await currentProfile()
     const { data: order, error } = await supabase.from('orders').insert({
       // No reference: a sequence issues it (migration 0009).
@@ -971,6 +992,7 @@ export const TradeInAPI = {
   },
   async create(payload) {
     assertConnected()
+    await requireSession()
     const profile = await currentProfile()
     const { data, error } = await supabase.from('trade_in_requests').insert({
       customer_id: profile?.id ?? null, device_category: payload.deviceCategory,
@@ -1662,6 +1684,38 @@ export const AuthAPI = {
     })
     if (error) throw error
     return { id: data.user?.id, name, email, phone, role: 'customer', status: 'active' }
+  },
+
+  // Ending the session, properly.
+  //
+  // Clearing the app's own copy of who is signed in is not signing out: the Supabase access and
+  // refresh tokens sit in the browser's storage and keep working — and keep refreshing
+  // themselves — until GoTrue is told the session is over. Before this, "Sign out" left a live
+  // session behind on the machine.
+  async signOut() {
+    if (!supabase) return
+    profileCache = { id: null, profile: null }
+    await supabase.auth.signOut()
+  },
+
+  // Being told when the session ends underneath an open page.
+  //
+  // Nothing was watching it. The app decided you were signed in from its own record in local
+  // storage, written once at sign-in, and never checked it against the session the requests
+  // actually travel with — so when Supabase dropped that session (a refresh token that failed to
+  // rotate, a sign-out in another tab) the screen carried on showing the customer's name and the
+  // next thing they saved went out anonymous. What came back was Postgres refusing an insert
+  // that belonged to nobody.
+  //
+  // Any event with no session means there is nobody signed in any more, whatever caused it.
+  onSessionEnded(handler) {
+    if (!supabase) return () => {}
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) return
+      profileCache = { id: null, profile: null }
+      handler()
+    })
+    return () => data?.subscription?.unsubscribe()
   },
 
   async changeOwnPassword({ newPassword } = {}) {

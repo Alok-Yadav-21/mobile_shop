@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useCallback } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
+import { toast } from 'sonner'
 import { AuthAPI, UserAPI } from '@/services/api.js'
 import { setSession, clearSession } from '@/services/session.js'
 
@@ -52,10 +53,41 @@ export function AuthProvider({ children }){
     return u
   },[adopt])
 
-  const logout = useCallback(()=>{
+  // Whether there was anybody to lose. Nothing to announce if the tab was never signed in.
+  const hadUser = useRef(!!user)
+  useEffect(()=>{ hadUser.current = !!user },[user])
+
+  // Forgetting who was signed in, here and in the ambient session the data layer authorises
+  // against. Split out from logout because the app has to do exactly this when the backend
+  // session ends without anyone pressing anything.
+  const forget = useCallback(()=>{
+    // Set here rather than in the effect below, which does not run until after the render: a
+    // deliberate sign-out reaches the listener first and would otherwise announce itself as a
+    // session that ended on its own.
+    hadUser.current = false
     setUser(null); clearSession(); setMustChangePassword(false)
     try{ localStorage.removeItem(SESSION); localStorage.removeItem(MUST_CHANGE) }catch{ /* ignore */ }
   },[])
+
+  const logout = useCallback(()=>{
+    forget()
+    // The backend session is a separate thing from this one and outlives it if nobody says so:
+    // on Supabase the tokens stay in the browser, and stay valid, until GoTrue is told. Not
+    // awaited — signing out of the screen must not wait on the network, and the local state is
+    // already gone either way.
+    AuthAPI.signOut?.()?.catch?.(()=>{})
+  },[forget])
+
+  // The session can end without anybody pressing sign out: a refresh token that failed to
+  // rotate, or a sign-out in another tab. Until this listener existed nothing noticed — the app
+  // went on showing the signed-in name, and the next thing the person saved was sent with no
+  // session at all, so the database refused a record that belonged to nobody and they were shown
+  // its refusal. Being asked to sign in again is the honest version of that.
+  useEffect(()=>AuthAPI.onSessionEnded?.(()=>{
+    if(!hadUser.current) return
+    forget()
+    toast.error('Your session has ended — please sign in again.')
+  }),[forget])
 
   const clearMustChangePassword = useCallback(()=>{
     setMustChangePassword(false)
