@@ -155,3 +155,9 @@ policies at all.
 `npm test` runs the vitest suite — cart math, currency formatting, repair status consistency,
 wage arithmetic and the approval gate, period/branch reporting, and the authorization rules
 (who may read what). Extend `src/**/*.test.js` as new pure logic is added.
+
+## Author
+
+**Alok Yadav** · AI/ML Engineer · MSc Data Science, Middlesex University London
+
+[Portfolio](https://mathtodata.com) · [LinkedIn](https://www.linkedin.com/in/yadavalokml) · [GitHub](https://github.com/Alok-Yadav-21)
